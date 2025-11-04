@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.runanywhere.startup_hackathon20.database.UserEntity
 import com.runanywhere.startup_hackathon20.ui.theme.Startup_hackathon20Theme
 
 class MainActivity : ComponentActivity() {
@@ -31,29 +32,33 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation() {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Auth) }
-    var userProfile by remember { mutableStateOf<UserProfile?>(null) }
+    var currentUser by remember { mutableStateOf<UserEntity?>(null) }
     var selectedGameMode by remember { mutableStateOf<GameMode?>(null) }
 
     when (val screen = currentScreen) {
         Screen.Auth -> {
             AuthScreen(
-                onAuthSuccess = { profile ->
-                    userProfile = profile
+                onAuthSuccess = { user ->
+                    currentUser = user
                     currentScreen = Screen.MainMenu
                 }
             )
         }
         Screen.MainMenu -> {
-            userProfile?.let { profile ->
+            currentUser?.let { user ->
                 MainMenuScreen(
-                    userProfile = profile,
+                    userProfile = UserProfile(
+                        name = user.name,
+                        email = user.email,
+                        dateOfBirth = user.dateOfBirth
+                    ),
                     onModeSelected = { mode ->
                         selectedGameMode = mode
                         currentScreen = Screen.Chat
                     },
                     onLogout = {
                         currentScreen = Screen.Auth
-                        userProfile = null
+                        currentUser = null
                     }
                 )
             }

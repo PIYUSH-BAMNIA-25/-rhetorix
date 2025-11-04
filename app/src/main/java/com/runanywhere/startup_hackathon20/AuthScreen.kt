@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -20,13 +21,26 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.runanywhere.startup_hackathon20.database.UserEntity
+import com.runanywhere.startup_hackathon20.viewmodel.AuthState
+import com.runanywhere.startup_hackathon20.viewmodel.AuthViewModel
 
 @Composable
 fun AuthScreen(
-    onAuthSuccess: (UserProfile) -> Unit
+    onAuthSuccess: (UserEntity) -> Unit,
+    viewModel: AuthViewModel = viewModel()
 ) {
     var isLoginMode by remember { mutableStateOf(true) }
-    
+    val authState by viewModel.authState.collectAsState()
+
+    // Handle auth success
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Success) {
+            onAuthSuccess((authState as AuthState.Success).user)
+        }
+    }
+
     // Dark gradient background
     Box(
         modifier = Modifier
@@ -84,11 +98,40 @@ fun AuthScreen(
                 modifier = Modifier.padding(top = 8.dp, bottom = 32.dp)
             )
 
+            // Show error message
+            if (authState is AuthState.Error) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color.Red.copy(alpha = 0.2f)
+                    )
+                ) {
+                    Text(
+                        text = (authState as AuthState.Error).message,
+                        color = Color.Red,
+                        modifier = Modifier.padding(12.dp),
+                        fontSize = 14.sp
+                    )
+                }
+            }
+
             // Login or Signup Form
             if (isLoginMode) {
-                LoginForm(onAuthSuccess = onAuthSuccess)
+                LoginForm(
+                    onLogin = { email, password ->
+                        viewModel.login(email, password)
+                    },
+                    isLoading = authState is AuthState.Loading
+                )
             } else {
-                SignUpForm(onAuthSuccess = onAuthSuccess)
+                SignUpForm(
+                    onSignUp = { name, email, password, dob ->
+                        viewModel.signUp(name, email, password, dob)
+                    },
+                    isLoading = authState is AuthState.Loading
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -103,7 +146,12 @@ fun AuthScreen(
                     color = Color.Gray,
                     fontSize = 14.sp
                 )
-                TextButton(onClick = { isLoginMode = !isLoginMode }) {
+                TextButton(
+                    onClick = {
+                        isLoginMode = !isLoginMode
+                        viewModel.resetState()
+                    }
+                ) {
                     Text(
                         text = if (isLoginMode) "Sign Up" else "Log In",
                         color = Color(0xFF00d9ff),
@@ -117,25 +165,27 @@ fun AuthScreen(
 }
 
 @Composable
-fun LoginForm(onAuthSuccess: (UserProfile) -> Unit) {
-    var playerName by remember { mutableStateOf("") }
+fun LoginForm(
+    onLogin: (String, String) -> Unit,
+    isLoading: Boolean
+) {
+    var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(false) }
 
     Column {
-        // Player Name / Email Field
+        // Email Field
         OutlinedTextField(
-            value = playerName,
-            onValueChange = { playerName = it },
+            value = email,
+            onValueChange = { email = it },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp),
-            placeholder = { Text("Enter your player name", color = Color.Gray) },
+            placeholder = { Text("Enter your email", color = Color.Gray) },
             leadingIcon = {
                 Icon(
-                    imageVector = Icons.Default.AccountCircle,
-                    contentDescription = "Player",
+                    imageVector = Icons.Default.Email,
+                    contentDescription = "Email",
                     tint = Color.Gray
                 )
             },
@@ -146,7 +196,8 @@ fun LoginForm(onAuthSuccess: (UserProfile) -> Unit) {
                 unfocusedBorderColor = Color.Gray
             ),
             shape = RoundedCornerShape(12.dp),
-            singleLine = true
+            singleLine = true,
+            enabled = !isLoading
         )
 
         // Password Field
@@ -181,13 +232,15 @@ fun LoginForm(onAuthSuccess: (UserProfile) -> Unit) {
                 unfocusedBorderColor = Color.Gray
             ),
             shape = RoundedCornerShape(12.dp),
-            singleLine = true
+            singleLine = true,
+            enabled = !isLoading
         )
 
         // Forgot Password Link
         TextButton(
             onClick = { /* TODO: Forgot password */ },
-            modifier = Modifier.align(Alignment.End)
+            modifier = Modifier.align(Alignment.End),
+            enabled = !isLoading
         ) {
             Text("Forgot Password?", color = Color(0xFF00d9ff), fontSize = 14.sp)
         }
@@ -197,21 +250,14 @@ fun LoginForm(onAuthSuccess: (UserProfile) -> Unit) {
         // Sign In Button
         Button(
             onClick = {
-                if (playerName.isNotBlank() && password.isNotBlank()) {
-                    isLoading = true
-                    // Simulate login - for hackathon, we skip backend validation
-                    val userProfile = UserProfile(
-                        name = playerName,
-                        email = "$playerName@rhetorix.com",
-                        dateOfBirth = "01/01/2000"
-                    )
-                    onAuthSuccess(userProfile)
+                if (email.isNotBlank() && password.isNotBlank()) {
+                    onLogin(email, password)
                 }
             },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            enabled = playerName.isNotBlank() && password.isNotBlank() && !isLoading,
+            enabled = email.isNotBlank() && password.isNotBlank() && !isLoading,
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFF00d9ff),
                 contentColor = Color.White
@@ -231,13 +277,15 @@ fun LoginForm(onAuthSuccess: (UserProfile) -> Unit) {
 }
 
 @Composable
-fun SignUpForm(onAuthSuccess: (UserProfile) -> Unit) {
+fun SignUpForm(
+    onSignUp: (String, String, String, String) -> Unit,
+    isLoading: Boolean
+) {
     var playerName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var dateOfBirth by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(false) }
 
     // Password strength
     val passwordStrength = remember(password) {
@@ -279,7 +327,8 @@ fun SignUpForm(onAuthSuccess: (UserProfile) -> Unit) {
                 unfocusedBorderColor = Color.Gray
             ),
             shape = RoundedCornerShape(12.dp),
-            singleLine = true
+            singleLine = true,
+            enabled = !isLoading
         )
 
         // Email Field
@@ -305,7 +354,8 @@ fun SignUpForm(onAuthSuccess: (UserProfile) -> Unit) {
                 unfocusedBorderColor = Color.Gray
             ),
             shape = RoundedCornerShape(12.dp),
-            singleLine = true
+            singleLine = true,
+            enabled = !isLoading
         )
 
         // Password Field
@@ -340,7 +390,8 @@ fun SignUpForm(onAuthSuccess: (UserProfile) -> Unit) {
                 unfocusedBorderColor = Color.Gray
             ),
             shape = RoundedCornerShape(12.dp),
-            singleLine = true
+            singleLine = true,
+            enabled = !isLoading
         )
 
         // Password Strength Indicator
@@ -395,7 +446,8 @@ fun SignUpForm(onAuthSuccess: (UserProfile) -> Unit) {
                 unfocusedBorderColor = Color.Gray
             ),
             shape = RoundedCornerShape(12.dp),
-            singleLine = true
+            singleLine = true,
+            enabled = !isLoading
         )
 
         // Sign Up Button
@@ -403,13 +455,7 @@ fun SignUpForm(onAuthSuccess: (UserProfile) -> Unit) {
             onClick = {
                 if (playerName.isNotBlank() && email.isNotBlank() && 
                     password.isNotBlank() && dateOfBirth.isNotBlank()) {
-                    isLoading = true
-                    val userProfile = UserProfile(
-                        name = playerName,
-                        email = email,
-                        dateOfBirth = dateOfBirth
-                    )
-                    onAuthSuccess(userProfile)
+                    onSignUp(playerName, email, password, dateOfBirth)
                 }
             },
             modifier = Modifier
@@ -464,7 +510,7 @@ fun LoginFormPreview() {
             )
             .padding(24.dp)
     ) {
-        LoginForm(onAuthSuccess = {})
+        LoginForm(onLogin = { _, _ -> }, isLoading = false)
     }
 }
 
@@ -484,6 +530,6 @@ fun SignUpFormPreview() {
             )
             .padding(24.dp)
     ) {
-        SignUpForm(onAuthSuccess = {})
+        SignUpForm(onSignUp = { _, _, _, _ -> }, isLoading = false)
     }
 }
