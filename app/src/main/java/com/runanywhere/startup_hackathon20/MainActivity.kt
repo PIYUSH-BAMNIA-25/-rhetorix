@@ -59,6 +59,9 @@ fun AppNavigation() {
                     onLogout = {
                         currentScreen = Screen.Auth
                         currentUser = null
+                    },
+                    onDebug = {
+                        currentScreen = Screen.Debug
                     }
                 )
             }
@@ -67,6 +70,9 @@ fun AppNavigation() {
             // Keep the original chat screen for now
             ChatScreen()
         }
+        Screen.Debug -> {
+            DebugScreen(onBack = { currentScreen = Screen.MainMenu })
+        }
     }
 }
 
@@ -74,6 +80,7 @@ sealed class Screen {
     object Auth : Screen()
     object MainMenu : Screen()
     object Chat : Screen()
+    object Debug : Screen()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

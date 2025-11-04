@@ -16,7 +16,8 @@ import androidx.compose.ui.unit.sp
 fun MainMenuScreen(
     userProfile: UserProfile,
     onModeSelected: (GameMode) -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onDebug: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -133,6 +134,16 @@ fun MainMenuScreen(
 
         Spacer(modifier = Modifier.weight(1f))
 
+        // Debug Button
+        OutlinedButton(
+            onClick = onDebug,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp)
+        ) {
+            Text("🔍 View Database (Debug)")
+        }
+
         // Logout Button
         OutlinedButton(
             onClick = onLogout,
@@ -184,6 +195,7 @@ fun MainMenuScreenPreview() {
             dateOfBirth = "15/08/1995"
         ),
         onModeSelected = {},
-        onLogout = {}
+        onLogout = {},
+        onDebug = {}
     )
 }
