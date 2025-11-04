@@ -22,10 +22,53 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             Startup_hackathon20Theme {
-                ChatScreen()
+                AppNavigation()
             }
         }
     }
+}
+
+@Composable
+fun AppNavigation() {
+    var currentScreen by remember { mutableStateOf<Screen>(Screen.Auth) }
+    var userProfile by remember { mutableStateOf<UserProfile?>(null) }
+    var selectedGameMode by remember { mutableStateOf<GameMode?>(null) }
+
+    when (val screen = currentScreen) {
+        Screen.Auth -> {
+            AuthScreen(
+                onAuthSuccess = { profile ->
+                    userProfile = profile
+                    currentScreen = Screen.MainMenu
+                }
+            )
+        }
+        Screen.MainMenu -> {
+            userProfile?.let { profile ->
+                MainMenuScreen(
+                    userProfile = profile,
+                    onModeSelected = { mode ->
+                        selectedGameMode = mode
+                        currentScreen = Screen.Chat
+                    },
+                    onLogout = {
+                        currentScreen = Screen.Auth
+                        userProfile = null
+                    }
+                )
+            }
+        }
+        Screen.Chat -> {
+            // Keep the original chat screen for now
+            ChatScreen()
+        }
+    }
+}
+
+sealed class Screen {
+    object Auth : Screen()
+    object MainMenu : Screen()
+    object Chat : Screen()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

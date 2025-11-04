@@ -1,131 +1,262 @@
-# RunAnywhere SDK - Simple Chat App
+# Rhetorix - AI-Powered Debate Gaming Platform
 
-A simple Android chat application demonstrating the RunAnywhere SDK for on-device AI inference.
+A competitive debate platform where players sharpen their critical thinking skills through
+AI-powered and peer-to-peer debates.
 
-## What This App Does
+## Project Overview
 
-This is a minimal example showing how to:
+**Hackathon Project**: Bringing back the art of debate through gamification and AI
 
-1. Initialize the RunAnywhere SDK
-2. Download AI models (LLMs)
-3. Load models into memory
-4. Run text generation with streaming responses
+### The Problem
+
+- Debates are declining in modern society
+- People are losing critical thinking and argumentation skills
+- Lack of platforms to practice structured debates
+
+### Our Solution
+
+Rhetorix - A mobile debate gaming platform that:
+
+- Gamifies debates to make them engaging
+- Uses AI for realistic practice opponents and fair judging
+- Provides detailed feedback to improve skills
+- Offers competitive matchmaking against real players
+
+---
 
 ## Features
 
-- **Model Management**: Download and load AI models directly in the app
-- **Real-time Streaming**: See AI responses generate word-by-word
-- **Simple UI**: Clean Jetpack Compose interface
-- **On-Device AI**: All inference runs locally on your Android device
+### Authentication System
+
+- Login / Sign Up with beautiful dark theme UI
+- User profiles with player stats
+
+### Game Modes
+
+#### AI Mode (3 Difficulty Levels)
+
+- **Beginner**: Easy debates for newcomers
+- **Intermediate**: Moderate challenge
+- **Advanced**: Intense debates for masters
+
+#### P2P Mode
+
+- Real-time debates against other players
+- Competitive matchmaking
+- Global leaderboards
+
+### Debate Mechanics
+
+- Random topic assignment
+- Random side assignment (For/Against)
+- 30-second prep time
+- 10 minutes per player (20 min total)
+- Turn-based chat interface
+- Real-time AI judging
+
+### Scoring & Feedback
+
+AI judges debates on:
+
+- Logic & Reasoning (1-10)
+- Evidence Quality (1-10)
+- Tone & Respect (1-10)
+- Counter-Arguments (1-10)
+- Factual Accuracy (1-10)
+
+Post-match detailed feedback on:
+
+- Strengths and weaknesses
+- Behavior analysis
+- Improvement suggestions
+- Historical performance tracking
+
+---
+
+## Tech Stack
+
+- **Platform**: Android (Kotlin)
+- **UI Framework**: Jetpack Compose
+- **AI Integration**: RunAnywhere SDK (On-Device LLMs)
+- **Architecture**: MVVM
+- **Real-time**: Firebase (for P2P mode)
+
+---
 
 ## Quick Start
 
-### 1. Build and Run
+### Prerequisites
+
+- Android Studio (Latest version)
+- JDK 17 or higher
+- Android device with ARM64 architecture
+- Minimum Android 7.0 (API 24)
+
+### Installation
+
+1. **Clone the repository**
+```bash
+git clone https://github.com/YOUR_USERNAME/rhetorix-debate.git
+cd rhetorix-debate
+```
+
+2. **Open in Android Studio**
+    - File → Open → Select project folder
+
+3. **Build the project**
 
 ```bash
 ./gradlew assembleDebug
-# Or open in Android Studio and click Run
 ```
 
-### 2. Download a Model
+4. **Run on physical device**
+    - Connect Android phone via USB
+    - Enable USB Debugging
+    - Click Run ▶️ in Android Studio
 
-1. Launch the app
-2. Tap "Models" in the top bar
-3. Choose a model (we recommend starting with "SmolLM2 360M Q8_0" - only 119 MB)
-4. Tap "Download" and wait for it to complete
+### First Time Setup
 
-### 3. Load the Model
+1. Launch app
+2. Sign up / Login
+3. Download AI model (recommended: SmolLM2 360M - 119MB)
+4. Load the model
+5. Choose game mode and start debating!
 
-1. Once downloaded, tap "Load" on the model
-2. Wait for "Model loaded! Ready to chat." message
+---
 
-### 4. Start Chatting!
+## Screens
 
-1. Type a message in the text field
-2. Tap "Send"
-3. Watch the AI response generate in real-time
+### Completed
 
-## Available Models
+- [x] Authentication Screen (Login/Signup)
+- [x] Main Menu (Mode Selection)
+- [x] Model Management
 
-The app comes pre-configured with two models:
+### In Progress
 
-| Model | Size | Quality | Best For |
-|-------|------|---------|----------|
-| SmolLM2 360M Q8_0 | 119 MB | Basic | Testing, quick responses |
-| Qwen 2.5 0.5B Instruct Q6_K | 374 MB | Better | General conversations |
+- [ ] Debate Screen (Turn-based chat)
+- [ ] Timer System
+- [ ] AI Opponent Integration
+- [ ] AI Judge System
+- [ ] Results & Feedback Screen
+- [ ] P2P Matchmaking
 
-## Technical Details
+---
 
-### SDK Components Used
-
-- **RunAnywhere Core SDK**: Component architecture and model management
-- **LlamaCpp Module**: Optimized llama.cpp inference engine with 7 ARM64 variants
-- **Kotlin Coroutines**: For async operations and streaming
-
-### Architecture
+## Project Structure
 
 ```
-MyApplication (initialization)
-    ↓
-ChatViewModel (state management)
-    ↓
-ChatScreen (UI layer)
+app/src/main/java/com/runanywhere/startup_hackathon20/
+├── AuthScreen.kt           # Login/Signup UI
+├── MainMenuScreen.kt       # Game mode selection
+├── DebateScreen.kt         # Main debate interface (WIP)
+├── DebateViewModel.kt      # Debate logic & AI integration (WIP)
+├── DebateModels.kt         # Data classes and topics
+├── MainActivity.kt         # Navigation & app entry
+├── ChatViewModel.kt        # Original chat (to be refactored)
+└── MyApplication.kt        # SDK initialization
 ```
 
-### Key Files
+---
 
-- `MyApplication.kt` - SDK initialization and model registration
-- `ChatViewModel.kt` - Business logic and state management
-- `MainActivity.kt` - UI components and composables
+## Team
 
-## Requirements
+- **Developer 1**: [Your Name]
+- **Developer 2**: [Teammate Name]
 
-- Android 7.0 (API 24) or higher
-- ~200 MB free storage (for smallest model)
-- Internet connection (for downloading models)
+---
 
-## Troubleshooting
+## Design
 
-### Models not showing up
+- **Primary Color**: Cyan (#00d9ff)
+- **Background**: Dark gradient (#1a1a2e → #0f0f1e)
+- **Theme**: Dark mode
+- **Font**: System default (Roboto)
 
-- Wait a few seconds for SDK initialization
-- Tap "Refresh" in the Models section
-- Check logcat for initialization errors
+---
 
-### Download fails
+## Debate Topics
 
-- Check internet connection
-- Ensure sufficient storage space
-- Verify INTERNET permission in AndroidManifest.xml
+### Beginner (5 topics)
 
-### App crashes during generation
+- Social media does more harm than good
+- Students should wear school uniforms
+- Video games cause violence
+- Fast food should be banned
+- Homework should be abolished
 
-- Try the smaller model (SmolLM2 360M)
-- Close other apps to free memory
-- Check that `largeHeap="true"` is set in AndroidManifest.xml
+### Intermediate (5 topics)
 
-### Generation is slow
+- AI will replace human jobs
+- Climate change is biggest threat
+- Universal basic income
+- Genetic engineering in humans
+- Democracy is the best government
 
-- This is normal for on-device inference
-- Smaller models run faster
-- Performance depends on device CPU
+### Advanced (5 topics)
 
-## Next Steps
+- Cryptocurrency will replace traditional currency
+- Space exploration vs Earth problems
+- Consciousness and philosophical zombies
+- Quantum computing threatens cybersecurity
+- Transhumanism and human evolution
 
-Want to customize this app? Try:
+---
 
-1. **Add more models** - Edit `MyApplication.kt` → `registerModels()`
-2. **Customize UI** - Edit `MainActivity.kt` compose functions
-3. **Add system prompts** - Modify message format in `ChatViewModel.kt`
-4. **Persist chat history** - Add Room database or DataStore
-5. **Add model parameters** - Explore temperature, top-k, top-p settings
+## Development
 
-## Resources
+### Running Locally
 
-- [Full Quick Start Guide](app/src/main/java/com/runanywhere/startup_hackathon20/QUICK_START_ANDROID.md)
-- [RunAnywhere SDK Repository](https://github.com/RunanywhereAI/runanywhere-sdks)
-- [SDK Documentation](https://github.com/RunanywhereAI/runanywhere-sdks/blob/main/CLAUDE.md)
+```bash
+./gradlew assembleDebug
+```
+
+### Testing on Device
+
+```bash
+adb install app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Viewing Logs
+
+```bash
+adb logcat | grep "Rhetorix"
+```
+
+---
+
+## Known Issues
+
+- Emulator requires ARM64 architecture (use physical device)
+- First model download requires internet
+- Large models (1GB+) may cause memory issues on low-end devices
+
+---
 
 ## License
 
-This example app follows the license of the RunAnywhere SDK.
+This project uses the RunAnywhere SDK. See SDK license for details.
+
+---
+
+## Acknowledgments
+
+- RunAnywhere SDK for on-device AI capabilities
+- HuggingFace for pre-trained models
+- Material Design for UI components
+
+---
+
+## Contact
+
+For questions or feedback:
+
+- GitHub Issues: [Create an issue](https://github.com/YOUR_USERNAME/rhetorix-debate/issues)
+- Email: your.email@example.com
+
+---
+
+**Made with for [Hackathon Name]**
+
+*Bringing back the art of debate, one conversation at a time.*
+
