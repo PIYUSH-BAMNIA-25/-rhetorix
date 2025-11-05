@@ -18,7 +18,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -941,11 +940,10 @@ fun GlassmorphismBottomNav(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(70.dp)
-                .shadow(16.dp, RoundedCornerShape(35.dp))
-                .blur(5.dp),
+                .shadow(20.dp, RoundedCornerShape(35.dp)),
             shape = RoundedCornerShape(35.dp),
             colors = CardDefaults.cardColors(
-                containerColor = DarkCard.copy(alpha = 0.8f)
+                containerColor = DarkCard.copy(alpha = 0.95f)
             )
         ) {
             Row(
