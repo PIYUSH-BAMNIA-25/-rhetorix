@@ -31,6 +31,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.drawscope.Stroke
+import com.runanywhere.startup_hackathon20.data.DifficultyLevel
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -73,13 +74,23 @@ data class UserStats(
 @Composable
 fun MainMenuScreen(
     userProfile: UserProfile,
+    userWins: Int = 0,
     onModeSelected: (GameMode) -> Unit,
     onLogout: () -> Unit,
     onDebug: () -> Unit = {}
 ) {
     var currentPage by remember { mutableStateOf(BottomNavPage.HOME) }
     var settingsPage by remember { mutableStateOf(SettingsSubPage.MAIN) }
-    val userStats = remember { UserStats(wins = 15, losses = 8, draws = 3, averageScore = 87.5, likes = 142) }
+    var showP2PUnlockDialog by remember { mutableStateOf(false) }
+    val userStats = remember {
+        UserStats(
+            wins = userWins,
+            losses = 8,
+            draws = 3,
+            averageScore = 87.5,
+            likes = 142
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -112,7 +123,9 @@ fun MainMenuScreen(
                 BottomNavPage.HOME -> HomeScreen(
                     userProfile = userProfile,
                     userStats = userStats,
-                    onModeSelected = onModeSelected
+                    userWins = userWins,
+                    onModeSelected = onModeSelected,
+                    onShowP2PUnlock = { showP2PUnlockDialog = true }
                 )
                 BottomNavPage.PROFILE -> ProfileScreen(
                     userProfile = userProfile,
@@ -131,6 +144,14 @@ fun MainMenuScreen(
             onPageSelected = { currentPage = it },
             modifier = Modifier.align(Alignment.BottomCenter)
         )
+
+        // P2P Unlock Dialog
+        if (showP2PUnlockDialog) {
+            P2PUnlockDialog(
+                currentWins = userWins,
+                onDismiss = { showP2PUnlockDialog = false }
+            )
+        }
     }
 }
 
@@ -139,7 +160,9 @@ fun MainMenuScreen(
 fun HomeScreen(
     userProfile: UserProfile,
     userStats: UserStats,
-    onModeSelected: (GameMode) -> Unit
+    userWins: Int = 0,
+    onModeSelected: (GameMode) -> Unit,
+    onShowP2PUnlock: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -189,24 +212,33 @@ fun HomeScreen(
             textAlign = TextAlign.Center
         )
 
-        // Practice VS AI Button
+        // Practice VS AI Button - ALWAYS UNLOCKED
         GameModeCard(
             title = "Practice VS AI",
             icon = Icons.Filled.Phone,
             gradient = listOf(CyanPrimary, CyanLight),
             description = "Train with AI opponents",
+            isLocked = false,
             onClick = { onModeSelected(GameMode.AI_INTERMEDIATE) }
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // P2P Mode Button
+        // P2P Mode Button - UNLOCK AT 3 WINS
+        val p2pUnlocked = DifficultyLevel.PVP.isUnlocked(userWins)
         GameModeCard(
             title = "P2P Mode",
             icon = Icons.Filled.AccountCircle,
             gradient = listOf(PurpleAccent, Color(0xFFD946EF)),
-            description = "Challenge real players",
-            onClick = { onModeSelected(GameMode.PVP) }
+            description = if (p2pUnlocked) "Challenge real players" else "🔒 Win ${DifficultyLevel.PVP.requiredWins - userWins} more to unlock",
+            isLocked = !p2pUnlocked,
+            onClick = {
+                if (p2pUnlocked) {
+                    onModeSelected(GameMode.PVP)
+                } else {
+                    onShowP2PUnlock()
+                }
+            }
         )
 
         Spacer(modifier = Modifier.height(48.dp))
@@ -282,6 +314,7 @@ fun GameModeCard(
     icon: ImageVector,
     gradient: List<Color>,
     description: String,
+    isLocked: Boolean = false,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -315,21 +348,47 @@ fun GameModeCard(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.horizontalGradient(gradient)
+                    if (isLocked) {
+                        Brush.horizontalGradient(
+                            listOf(
+                                TextGray.copy(alpha = 0.3f),
+                                TextGray.copy(alpha = 0.2f)
+                            )
+                        )
+                    } else {
+                        Brush.horizontalGradient(gradient)
+                    }
                 )
         ) {
             // Decorative circles
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawCircle(
-                    color = Color.White.copy(alpha = 0.1f),
+                    color = Color.White.copy(alpha = if (isLocked) 0.05f else 0.1f),
                     radius = 100f,
                     center = Offset(size.width * 0.8f, size.height * 0.3f)
                 )
                 drawCircle(
-                    color = Color.White.copy(alpha = 0.05f),
+                    color = Color.White.copy(alpha = if (isLocked) 0.02f else 0.05f),
                     radius = 60f,
                     center = Offset(size.width * 0.2f, size.height * 0.7f)
                 )
+            }
+
+            // Lock Overlay
+            if (isLocked) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.4f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = "Locked",
+                        tint = TextWhite,
+                        modifier = Modifier.size(64.dp)
+                    )
+                }
             }
 
             Row(
@@ -344,20 +403,20 @@ fun GameModeCard(
                         text = title,
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextWhite
+                        color = TextWhite.copy(alpha = if (isLocked) 0.6f else 1f)
                     )
                     Text(
                         text = description,
                         fontSize = 16.sp,
-                        color = TextWhite.copy(alpha = 0.8f),
+                        color = TextWhite.copy(alpha = if (isLocked) 0.5f else 0.8f),
                         modifier = Modifier.padding(top = 4.dp)
                     )
                 }
 
                 Icon(
-                    imageVector = icon,
+                    imageVector = if (isLocked) Icons.Filled.Lock else icon,
                     contentDescription = title,
-                    tint = TextWhite,
+                    tint = TextWhite.copy(alpha = if (isLocked) 0.6f else 1f),
                     modifier = Modifier.size(60.dp)
                 )
             }
@@ -1090,8 +1149,112 @@ fun MainMenuScreenPreview() {
             email = "john@rhetorix.com",
             dateOfBirth = "15/08/1995"
         ),
+        userWins = 0,
         onModeSelected = {},
         onLogout = {},
         onDebug = {}
+    )
+}
+
+@Composable
+fun P2PUnlockDialog(
+    currentWins: Int,
+    onDismiss: () -> Unit
+) {
+    val difficulty = DifficultyLevel.PVP
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.Lock,
+                contentDescription = "Locked",
+                tint = PurpleAccent,
+                modifier = Modifier.size(48.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "⚔️ P2P Mode Locked",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = difficulty.description,
+                    fontSize = 14.sp,
+                    color = TextGray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                // Progress indicator
+                Text(
+                    text = "Progress: $currentWins / ${difficulty.requiredWins} wins",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PurpleAccent
+                )
+
+                // Progress bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .height(8.dp)
+                        .background(TextGray.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(currentWins.toFloat() / difficulty.requiredWins.toFloat())
+                            .fillMaxHeight()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(PurpleAccent, CyanPrimary)
+                                ),
+                                RoundedCornerShape(4.dp)
+                            )
+                    )
+                }
+
+                Text(
+                    text = "Win ${difficulty.requiredWins - currentWins} more ${if (difficulty.requiredWins - currentWins == 1) "match" else "matches"} to challenge real players!",
+                    fontSize = 14.sp,
+                    color = TextGray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "💡 Tip: Practice in AI modes to unlock P2P!",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = GreenWin,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PurpleAccent,
+                    contentColor = TextWhite
+                )
+            ) {
+                Text("Got it!")
+            }
+        },
+        containerColor = DarkCard,
+        shape = RoundedCornerShape(24.dp)
     )
 }

@@ -47,11 +47,35 @@ class MyApplication : Application() {
     }
 
     private suspend fun registerModels() {
-        // Medium-sized model - better quality (374 MB)
-        addModelFromURL(
-            url = "https://huggingface.co/Triangle104/Qwen2.5-0.5B-Instruct-Q6_K-GGUF/resolve/main/qwen2.5-0.5b-instruct-q6_k.gguf",
-            name = "Qwen 2.5 0.5B Instruct Q6_K",
-            type = "LLM"
-        )
+        try {
+            // MODEL 1: BEGINNER AI (Llama 3.2 1B)
+            // Downloads during signup (1-2 min download)
+            // Used for: Beginner difficulty matches
+            addModelFromURL(
+                url = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q6_K_L.gguf",
+                name = "Llama 3.2 1B Instruct Q6_K",
+                type = "LLM"
+            )
+            Log.d("MyApplication", "📥 Registered Beginner Model: Llama 3.2 1B (815 MB)")
+
+            // MODEL 2: ADVANCED AI (Qwen 2.5 3B)
+            // Downloads in background during beginner matches
+            // Used for: Intermediate, Advanced, and P2P modes
+            addModelFromURL(
+                url = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q6_k.gguf",
+                name = "Qwen 2.5 3B Instruct Q6_K",
+                type = "LLM"
+            )
+            Log.d("MyApplication", "📥 Registered Advanced Model: Qwen 2.5 3B (2.3 GB)")
+
+            Log.d("MyApplication", "🎮 Progressive Loading Strategy:")
+            Log.d("MyApplication", "  → Signup: Download Llama 1B (815 MB)")
+            Log.d("MyApplication", "  → Beginner Mode: Use Llama 1B")
+            Log.d("MyApplication", "  → Background: Download Qwen 3B (2.3 GB)")
+            Log.d("MyApplication", "  → Intermediate+: Use Qwen 3B")
+
+        } catch (e: Exception) {
+            Log.e("MyApplication", "❌ Error registering models", e)
+        }
     }
 }

@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.runanywhere.startup_hackathon20.database.UserEntity
 import com.runanywhere.startup_hackathon20.ui.theme.Startup_hackathon20Theme
+import com.runanywhere.startup_hackathon20.viewmodel.AuthViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,22 +30,41 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// Navigation Screens
+sealed class Screen {
+    object Auth : Screen()
+    object Home : Screen()
+    object AIModeSelection : Screen()
+    object DebatePreparation : Screen()
+    object DebateActive : Screen()
+    object DebateResults : Screen()
+    object ChangePassword : Screen()
+    object Debug : Screen()
+}
+
 @Composable
 fun AppNavigation() {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Auth) }
     var currentUser by remember { mutableStateOf<UserEntity?>(null) }
-    var selectedGameMode by remember { mutableStateOf<GameMode?>(null) }
 
-    when (val screen = currentScreen) {
+    // Initialize ViewModels
+    val authViewModel: AuthViewModel = viewModel()
+    val debateViewModel: DebateViewModel = viewModel()
+
+    when (currentScreen) {
+        // 1. AUTH SCREEN (Sign In / Login)
         Screen.Auth -> {
             AuthScreen(
                 onAuthSuccess = { user ->
                     currentUser = user
-                    currentScreen = Screen.MainMenu
-                }
+                    currentScreen = Screen.Home
+                },
+                viewModel = authViewModel
             )
         }
-        Screen.MainMenu -> {
+
+        // 2. HOME SCREEN (Home & Profile tabs)
+        Screen.Home -> {
             currentUser?.let { user ->
                 MainMenuScreen(
                     userProfile = UserProfile(
@@ -53,12 +73,22 @@ fun AppNavigation() {
                         dateOfBirth = user.dateOfBirth
                     ),
                     onModeSelected = { mode ->
-                        selectedGameMode = mode
-                        currentScreen = Screen.Chat
+                        when (mode) {
+                            GameMode.PVP -> {
+                                // P2P: Skip mode selection, go direct to prep
+                                debateViewModel.startDebate(GameMode.PVP)
+                                currentScreen = Screen.DebatePreparation
+                            }
+                            else -> {
+                                // AI: Go to mode selection first
+                                currentScreen = Screen.AIModeSelection
+                            }
+                        }
                     },
                     onLogout = {
-                        currentScreen = Screen.Auth
+                        authViewModel.logout()
                         currentUser = null
+                        currentScreen = Screen.Auth
                     },
                     onDebug = {
                         currentScreen = Screen.Debug
@@ -66,21 +96,180 @@ fun AppNavigation() {
                 )
             }
         }
-        Screen.Chat -> {
-            // Keep the original chat screen for now
-            ChatScreen()
+
+        // 3. AI MODE SELECTION (Beginner / Intermediate / Advanced)
+        Screen.AIModeSelection -> {
+            AIPracticeModeScreen(
+                onDifficultySelected = { selectedMode ->
+                    // Start debate with selected difficulty
+                    debateViewModel.startDebate(selectedMode)
+                    currentScreen = Screen.DebatePreparation
+                },
+                onBack = {
+                    currentScreen = Screen.Home
+                }
+            )
         }
+
+        // 4. DEBATE PREPARATION (VS animation, topic reveal, coin toss)
+        Screen.DebatePreparation -> {
+            val session by debateViewModel.currentSession.collectAsState()
+
+            session?.let { debateSession ->
+                DebatePreparationScreen(
+                    playerName = debateSession.player1.name,
+                    aiName = debateSession.player2?.name ?: "AI Debater",
+                    topic = debateSession.topic.title,
+                    topicDescription = debateSession.topic.description,
+                    playerSide = if (debateSession.player1Side == DebateSide.FOR) "FOR" else "AGAINST",
+                    aiSide = if (debateSession.player2Side == DebateSide.FOR) "FOR" else "AGAINST",
+                    gameMode = debateSession.gameMode,
+                    onPreparationComplete = { playerStarts ->
+                        // Preparation done, move to active debate
+                        currentScreen = Screen.DebateActive
+                    }
+                )
+            }
+        }
+
+        // 5. DEBATE ACTIVE (Chat screen with AI)
+        Screen.DebateActive -> {
+            DebateActiveScreen(
+                viewModel = debateViewModel
+            )
+
+            // Listen for debate completion
+            val session by debateViewModel.currentSession.collectAsState()
+            LaunchedEffect(session?.status) {
+                if (session?.status == DebateStatus.FINISHED) {
+                    currentScreen = Screen.DebateResults
+                }
+            }
+        }
+
+        // 6. DEBATE RESULTS (Winner, scores, feedback)
+        Screen.DebateResults -> {
+            val session by debateViewModel.currentSession.collectAsState()
+
+            session?.let { debateSession ->
+                debateSession.scores?.let { scores ->
+                    // Extract feedback points
+                    val feedbackParts = extractFeedbackPoints(scores.detailedAnalysis)
+
+                    DebateResultsScreen(
+                        playerName = debateSession.player1.name,
+                        aiName = debateSession.player2?.name ?: "AI Debater",
+                        playerScore = scores.player1Score.totalScore,
+                        aiScore = scores.player2Score.totalScore,
+                        playerWon = scores.winner == debateSession.player1.id,
+                        shiningPoints = feedbackParts.first,
+                        lackingPoints = feedbackParts.second,
+                        topic = debateSession.topic.title,
+                        gameMode = debateSession.gameMode,
+                        onPlayAgain = {
+                            // Play again with same mode
+                            debateViewModel.startDebate(debateSession.gameMode)
+                            currentScreen = Screen.DebatePreparation
+                        },
+                        onBackToMenu = {
+                            // Back to home screen
+                            currentScreen = Screen.Home
+                        }
+                    )
+                }
+            }
+        }
+
+        // 7. CHANGE PASSWORD (from profile)
+        Screen.ChangePassword -> {
+            ChangePasswordScreen(
+                onBack = {
+                    currentScreen = Screen.Home
+                }
+            )
+        }
+
+
+        // 8. DEBUG SCREEN
         Screen.Debug -> {
-            DebugScreen(onBack = { currentScreen = Screen.MainMenu })
+            DebugScreen(onBack = { currentScreen = Screen.Home })
         }
     }
 }
 
-sealed class Screen {
-    object Auth : Screen()
-    object MainMenu : Screen()
-    object Chat : Screen()
-    object Debug : Screen()
+// Helper function to extract feedback points
+fun extractFeedbackPoints(detailedAnalysis: String): Pair<List<String>, List<String>> {
+    val shiningPoints = mutableListOf<String>()
+    val lackingPoints = mutableListOf<String>()
+
+    // Parse PLAYER1_FEEDBACK for shining points
+    val player1Feedback = detailedAnalysis.lines()
+        .find { it.startsWith("PLAYER1_FEEDBACK:") }
+        ?.substringAfter(":")
+        ?.trim() ?: ""
+
+    // Look for positive keywords in feedback
+    if (player1Feedback.isNotEmpty()) {
+        when {
+            player1Feedback.contains("logic", ignoreCase = true) ||
+                    player1Feedback.contains("reasoning", ignoreCase = true) -> {
+                shiningPoints.add("Strong logical reasoning and clear argument structure")
+            }
+
+            player1Feedback.contains("evidence", ignoreCase = true) -> {
+                shiningPoints.add("Good use of evidence and supporting examples")
+            }
+
+            player1Feedback.contains("respectful", ignoreCase = true) ||
+                    player1Feedback.contains("tone", ignoreCase = true) -> {
+                shiningPoints.add("Maintained respectful and professional tone")
+            }
+        }
+    }
+
+    // Default shining points if parsing doesn't find specific ones
+    if (shiningPoints.isEmpty()) {
+        shiningPoints.addAll(
+            listOf(
+                "Demonstrated clear understanding of the topic",
+                "Provided relevant arguments supporting your position",
+                "Engaged constructively throughout the debate"
+            )
+        )
+    }
+
+    // Extract lacking points (areas to improve)
+    when {
+        detailedAnalysis.contains("counter", ignoreCase = true) -> {
+            lackingPoints.add("Address opponent's counter-arguments more directly")
+        }
+
+        detailedAnalysis.contains("evidence", ignoreCase = true) &&
+                detailedAnalysis.contains("lack", ignoreCase = true) -> {
+            lackingPoints.add("Provide more concrete evidence to support claims")
+        }
+
+        detailedAnalysis.contains("repetit", ignoreCase = true) -> {
+            lackingPoints.add("Avoid repetition - introduce new angles and perspectives")
+        }
+    }
+
+    // Default lacking points
+    if (lackingPoints.isEmpty()) {
+        lackingPoints.addAll(
+            listOf(
+                "Could strengthen arguments with more specific examples",
+                "Consider addressing counter-arguments more thoroughly",
+                "Explore different perspectives to make arguments more robust"
+            )
+        )
+    }
+
+    // Ensure exactly 3 of each
+    return Pair(
+        shiningPoints.take(3),
+        lackingPoints.take(3)
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
