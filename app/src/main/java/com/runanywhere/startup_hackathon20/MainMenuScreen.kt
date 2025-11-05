@@ -940,10 +940,19 @@ fun GlassmorphismBottomNav(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(70.dp)
-                .shadow(20.dp, RoundedCornerShape(35.dp)),
+                .shadow(24.dp, RoundedCornerShape(35.dp)),
             shape = RoundedCornerShape(35.dp),
             colors = CardDefaults.cardColors(
-                containerColor = DarkCard.copy(alpha = 0.95f)
+                containerColor = DarkCard
+            ),
+            border = androidx.compose.foundation.BorderStroke(
+                width = 1.dp,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        CyanPrimary.copy(alpha = 0.3f),
+                        PurpleAccent.copy(alpha = 0.3f)
+                    )
+                )
             )
         ) {
             Row(

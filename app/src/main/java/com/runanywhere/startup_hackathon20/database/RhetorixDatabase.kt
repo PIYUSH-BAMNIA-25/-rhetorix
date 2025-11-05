@@ -26,7 +26,8 @@ abstract class RhetorixDatabase : RoomDatabase() {
                     RhetorixDatabase::class.java,
                     "rhetorix_database"
                 )
-                    .fallbackToDestructiveMigration() // For hackathon - in production, use proper migrations
+                    // Removed .fallbackToDestructiveMigration() to preserve data
+                    // Data will persist even when device disconnects
                     .build()
                 INSTANCE = instance
                 instance
