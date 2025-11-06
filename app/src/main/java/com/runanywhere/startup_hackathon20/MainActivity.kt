@@ -4,20 +4,27 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.runanywhere.startup_hackathon20.database.RhetorixDatabase
 import com.runanywhere.startup_hackathon20.database.UserEntity
 import com.runanywhere.startup_hackathon20.ui.theme.Startup_hackathon20Theme
-import com.runanywhere.startup_hackathon20.viewmodel.AuthViewModel
+import com.runanywhere.startup_hackathon20.AuthViewModel
 import com.runanywhere.startup_hackathon20.DebateViewModel
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,6 +41,7 @@ class MainActivity : ComponentActivity() {
 // Navigation Screens
 sealed class Screen {
     object Auth : Screen()
+    object ModelSetup : Screen()
     object Home : Screen()
     object AIModeSelection : Screen()
     object DebatePreparation : Screen()
@@ -48,10 +56,56 @@ fun AppNavigation() {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Auth) }
     var currentUser by remember { mutableStateOf<UserEntity?>(null) }
     var userId by remember { mutableStateOf<String?>(null) }
+    
+    // Add loading state
+    var isInitializing by remember { mutableStateOf(true) }
 
     // Initialize ViewModels
     val authViewModel: AuthViewModel = viewModel()
     val debateViewModel: DebateViewModel = viewModel()
+    
+    // Add coroutine scope
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // Check for existing user on app start
+    LaunchedEffect(Unit) {
+        scope.launch {
+            try {
+                val database = RhetorixDatabase.getDatabase(context)
+                val loggedInUser = database.userDao().getLoggedInUser()
+                
+                if (loggedInUser != null) {
+                    // User is already logged in
+                    currentUser = loggedInUser
+                    currentScreen = Screen.Home
+                    
+                    // Login user in DebateViewModel
+                    debateViewModel.loginUser(
+                        userId = loggedInUser.id,
+                        name = loggedInUser.name,
+                        email = loggedInUser.email,
+                        dateOfBirth = loggedInUser.dateOfBirth
+                    )
+                    userId = loggedInUser.id.toString()
+                    android.util.Log.d(
+                        "MainActivity",
+                        "✅ Auto-logged in user: ${loggedInUser.name}"
+                    )
+                } else {
+                    // No user logged in, stay on auth screen
+                    currentScreen = Screen.Auth
+                    android.util.Log.d("MainActivity", "ℹ️ No logged in user, showing auth screen")
+                }
+            } catch (e: Exception) {
+                // Error checking, default to auth screen
+                android.util.Log.e("MainActivity", "❌ Error checking logged in user", e)
+                currentScreen = Screen.Auth
+            } finally {
+                isInitializing = false
+            }
+        }
+    }
 
     // Set current user in DebateViewModel when user logs in
     LaunchedEffect(currentUser) {
@@ -67,19 +121,105 @@ fun AppNavigation() {
         }
     }
 
+    // Auto-navigate to DebatePreparation when session is created
+    val currentSession by debateViewModel.currentSession.collectAsState()
+    LaunchedEffect(currentSession) {
+        android.util.Log.d(
+            "MainActivity",
+            " LaunchedEffect triggered - Session: ${currentSession?.status}, CurrentScreen: $currentScreen"
+        )
+        currentSession?.let { session ->
+            // If a new session was created and we're not already on a debate screen
+            when {
+                session.status == DebateStatus.PREP_TIME &&
+                        (currentScreen == Screen.AIModeSelection || currentScreen == Screen.Home) -> {
+                    // Just started a new debate from AI mode selection or Home (PVP)
+                    android.util.Log.d("MainActivity", " Navigating to DebatePreparation")
+                    currentScreen = Screen.DebatePreparation
+                }
+                session.status == DebateStatus.IN_PROGRESS && currentScreen == Screen.DebatePreparation -> {
+                    // Prep time is over, move to active debate
+                    android.util.Log.d("MainActivity", " Navigating to DebateActive")
+                    currentScreen = Screen.DebateActive
+                }
+
+                session.status == DebateStatus.FINISHED && currentScreen == Screen.DebateActive -> {
+                    // Debate finished, show results
+                    android.util.Log.d("MainActivity", " Navigating to DebateResults")
+                    currentScreen = Screen.DebateResults
+                }
+                else -> {
+                    android.util.Log.d(
+                        "MainActivity",
+                        " No navigation - Status: ${session.status}, Screen: $currentScreen"
+                    )
+                }
+            }
+        }
+    }
+
+    // Auto-navigate to Model Setup if models need to be downloaded
+    val needsModelDownload by debateViewModel.needsModelDownload.collectAsState()
+    LaunchedEffect(needsModelDownload) {
+        if (needsModelDownload) {
+            android.util.Log.d("MainActivity", "⚠️ Model not downloaded, navigating to Model Setup")
+            currentScreen = Screen.ModelSetup
+            // Reset the flag
+            debateViewModel.resetModelDownloadFlag()
+        }
+    }
+
+    // Show loading screen while initializing
+    if (isInitializing) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0A0A0F)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Color(0xFF00D9FF))
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Loading Retrorix...",
+                    color = Color.White,
+                    fontSize = 18.sp
+                )
+            }
+        }
+        return
+    }
+
     when (currentScreen) {
         // 1. AUTH SCREEN (Sign In / Login)
         Screen.Auth -> {
             AuthScreen(
                 onAuthSuccess = { user ->
                     currentUser = user
+                    // Skip ModelSetup, go directly to Home since models auto-register
                     currentScreen = Screen.Home
                 },
                 viewModel = authViewModel
             )
         }
 
-        // 2. HOME SCREEN (Home & Profile tabs)
+        // 2. MODEL SETUP SCREEN
+        Screen.ModelSetup -> {
+            ModelSetupScreen(
+                onSetupComplete = {
+                    // Reset flag if it was set
+                    debateViewModel.resetModelDownloadFlag()
+                    currentScreen = Screen.Home
+                },
+                onBack = {
+                    // Reset flag and go back to home
+                    debateViewModel.resetModelDownloadFlag()
+                    currentScreen = Screen.Home
+                }
+            )
+        }
+
+        // 3. HOME SCREEN (Home & Profile tabs)
         Screen.Home -> {
             currentUser?.let { user ->
                 MainMenuScreen(
@@ -92,9 +232,9 @@ fun AppNavigation() {
                     onModeSelected = { mode ->
                         when (mode) {
                             GameMode.PVP -> {
-                                // P2P: Skip mode selection, go direct to prep
+                                // P2P: Skip mode selection, start debate directly
                                 debateViewModel.startDebate(GameMode.PVP)
-                                currentScreen = Screen.DebatePreparation
+                                // Navigation will happen automatically via LaunchedEffect
                             }
                             else -> {
                                 // AI: Go to mode selection first
@@ -114,14 +254,21 @@ fun AppNavigation() {
             }
         }
 
-        // 3. AI MODE SELECTION (Beginner / Intermediate / Advanced)
+        // 4. AI MODE SELECTION (Beginner / Intermediate / Advanced)
         Screen.AIModeSelection -> {
             AIPracticeModeScreen(
                 userWins = currentUser?.wins ?: 0,
                 onDifficultySelected = { selectedMode ->
                     // Start debate with selected difficulty
+                    android.util.Log.d(
+                        "MainActivity",
+                        "🎯 onDifficultySelected called with mode: $selectedMode"
+                    )
                     debateViewModel.startDebate(selectedMode)
-                    currentScreen = Screen.DebatePreparation
+                    android.util.Log.d(
+                        "MainActivity",
+                        "🎯 startDebate() called, waiting for session to be created..."
+                    )
                 },
                 onBack = {
                     currentScreen = Screen.Home
@@ -129,7 +276,7 @@ fun AppNavigation() {
             )
         }
 
-        // 4. DEBATE PREPARATION (VS animation, topic reveal, coin toss)
+        // 5. DEBATE PREPARATION (VS animation, topic reveal, coin toss)
         Screen.DebatePreparation -> {
             val session by debateViewModel.currentSession.collectAsState()
 
@@ -151,7 +298,7 @@ fun AppNavigation() {
             }
         }
 
-        // 5. DEBATE ACTIVE (Chat screen with AI)
+        // 6. DEBATE ACTIVE (Chat screen with AI)
         Screen.DebateActive -> {
             DebateActiveScreen(
                 viewModel = debateViewModel
@@ -166,7 +313,7 @@ fun AppNavigation() {
             }
         }
 
-        // 6. DEBATE RESULTS (Winner, scores, feedback)
+        // 7. DEBATE RESULTS (Winner, scores, feedback)
         Screen.DebateResults -> {
             val session by debateViewModel.currentSession.collectAsState()
 
@@ -189,7 +336,7 @@ fun AppNavigation() {
                         onPlayAgain = {
                             // Play again with same mode
                             debateViewModel.startDebate(debateSession.gameMode)
-                            currentScreen = Screen.DebatePreparation
+                            // Navigation will happen automatically via LaunchedEffect
                         },
                         onBackToMenu = {
                             // Back to home screen
@@ -200,7 +347,7 @@ fun AppNavigation() {
             }
         }
 
-        // 7. CHANGE PASSWORD (from profile)
+        // 8. CHANGE PASSWORD (from profile)
         Screen.ChangePassword -> {
             ChangePasswordScreen(
                 onBack = {
@@ -210,7 +357,7 @@ fun AppNavigation() {
         }
 
 
-        // 8. DEBUG SCREEN
+        // 9. DEBUG SCREEN
         Screen.Debug -> {
             DebugScreen(onBack = { currentScreen = Screen.Home })
         }
@@ -538,6 +685,238 @@ fun ModelItem(
                         Text("Load")
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun ModelSetupScreen(onSetupComplete: () -> Unit, onBack: () -> Unit) {
+    val debateViewModel: DebateViewModel = viewModel()
+    val availableModels by debateViewModel.availableModels.collectAsState()
+    val downloadProgress by debateViewModel.downloadProgress.collectAsState()
+    val currentModelId by debateViewModel.currentModelId.collectAsState()
+    val statusMessage by debateViewModel.statusMessage.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Header
+        Text(
+            text = "🤖 AI Model Setup",
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        // Alert banner if coming from failed debate start
+        val needsDownload by debateViewModel.needsModelDownload.collectAsState()
+        if (needsDownload) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "⚠️ Model Required",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "To start AI practice, you need to download the 'Llama 3.2 1B Instruct' model for Beginner mode (815 MB).",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+
+        Text(
+            text = if (needsDownload) "Please download the required model below:" else "Download at least one model to start debating!",
+            style = MaterialTheme.typography.bodyLarge
+        )
+
+        // Status Message
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = statusMessage,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                downloadProgress?.let { progress ->
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                    )
+                    Text(
+                        text = "${(progress * 100).toInt()}% downloaded",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        }
+
+        // Model List
+        Text(
+            text = "Available Models",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        if (availableModels.isEmpty()) {
+            Text(
+                text = "Loading models... Please wait.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(availableModels) { model ->
+                    ModelSetupItem(
+                        model = model,
+                        isLoaded = model.name == currentModelId,
+                        onDownload = { debateViewModel.downloadModel(model.id) },
+                        onLoad = { debateViewModel.loadModel(model.id) },
+                        downloadProgress = downloadProgress
+                    )
+                }
+            }
+        }
+
+        // Continue Button
+        val hasDownloadedModel = availableModels.any { it.isDownloaded }
+
+        Button(
+            onClick = onSetupComplete,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = hasDownloadedModel && downloadProgress == null
+        ) {
+            Text(
+                if (hasDownloadedModel) "Continue to Debate Arena"
+                else "Please download at least one model"
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TextButton(
+                onClick = { debateViewModel.refreshModels() },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Refresh Models")
+            }
+
+            TextButton(
+                onClick = onBack,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Back")
+            }
+        }
+    }
+}
+
+@Composable
+fun ModelSetupItem(
+    model: com.runanywhere.sdk.models.ModelInfo,
+    isLoaded: Boolean,
+    onDownload: () -> Unit,
+    onLoad: () -> Unit,
+    downloadProgress: Float?
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                isLoaded -> MaterialTheme.colorScheme.tertiaryContainer
+                model.isDownloaded -> MaterialTheme.colorScheme.secondaryContainer
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            }
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Model Name
+            Text(
+                text = model.name,
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Status and Actions
+            when {
+                isLoaded -> {
+                    Text(
+                        text = "✓ Currently Loaded & Ready",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                model.isDownloaded -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "✓ Downloaded",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier
+                                .weight(1f)
+                                .align(androidx.compose.ui.Alignment.CenterVertically)
+                        )
+                        Button(
+                            onClick = onLoad,
+                            enabled = downloadProgress == null
+                        ) {
+                            Text("Load Model")
+                        }
+                    }
+                }
+
+                else -> {
+                    Button(
+                        onClick = onDownload,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = downloadProgress == null
+                    ) {
+                        Text("Download Model")
+                    }
+                }
+            }
+
+            // Recommended Badge
+            if (model.name.contains("Llama 3.2 1B")) {
+                Text(
+                    text = "⭐ Recommended for beginners",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            } else if (model.name.contains("Qwen 2.5 3B")) {
+                Text(
+                    text = "🎯 Best for advanced debates",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
         }
     }

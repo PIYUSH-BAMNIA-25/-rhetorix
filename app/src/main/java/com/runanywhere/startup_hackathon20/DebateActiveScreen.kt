@@ -61,6 +61,7 @@ fun DebateActiveScreen(
     val currentTurnScore by viewModel.currentTurnScore.collectAsState()
     val aiTypingText by viewModel.aiTypingText.collectAsState()
     val isAITyping by viewModel.isAITyping.collectAsState()
+    val accumulatedScores by viewModel.accumulatedScores.collectAsState()
     
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -133,8 +134,8 @@ fun DebateActiveScreen(
 
             // Input Section (Bottom)
             currentSession?.let { session ->
-                val playerScore = session.scores?.player1Score?.totalScore ?: 0
-                val aiScore = session.scores?.player2Score?.totalScore ?: 0
+                val playerScore = accumulatedScores?.playerTotalScore ?: 0
+                val aiScore = accumulatedScores?.aiTotalScore ?: 0
 
                 DebateInputSection(
                     inputText = inputText,
@@ -145,7 +146,7 @@ fun DebateActiveScreen(
                             inputText = ""
                         }
                     },
-                    isEnabled = session.currentTurn == session.player1.id && !isLoading,
+                    isEnabled = session.currentTurn == session.player1.id && !isAITyping && session.status == DebateStatus.IN_PROGRESS,
                     statusMessage = statusMessage,
                     playerName = session.player1.name,
                     playerScore = playerScore,

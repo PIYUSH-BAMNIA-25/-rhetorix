@@ -35,8 +35,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.runanywhere.startup_hackathon20.database.UserEntity
-import com.runanywhere.startup_hackathon20.viewmodel.AuthState
-import com.runanywhere.startup_hackathon20.viewmodel.AuthViewModel
+import com.runanywhere.startup_hackathon20.AuthState
+import com.runanywhere.startup_hackathon20.AuthViewModel
 import kotlin.math.cos
 import kotlin.math.sin
 

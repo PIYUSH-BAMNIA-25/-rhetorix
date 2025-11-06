@@ -9,6 +9,7 @@ import com.runanywhere.sdk.llm.llamacpp.LlamaCppServiceProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 class MyApplication : Application() {
 
@@ -24,25 +25,36 @@ class MyApplication : Application() {
     private suspend fun initializeSDK() {
         try {
             // Step 1: Initialize SDK
+            Log.i("MyApp", "🚀 Initializing RunAnywhere SDK...")
             RunAnywhere.initialize(
                 context = this@MyApplication,
                 apiKey = "dev",  // Any string works in dev mode
                 environment = SDKEnvironment.DEVELOPMENT
             )
 
+            // Wait a moment to ensure SDK initialization completes
+            delay(500)
+
+            // IMPORTANT: SDK clears model cache during initialization
+            // We need to re-register models AFTER SDK init completes
+            Log.i("MyApp", "✅ SDK initialized, now registering models...")
+
             // Step 2: Register LLM Service Provider
             LlamaCppServiceProvider.register()
+            Log.i("MyApp", "✅ LlamaCpp Service Provider registered")
 
-            // Step 3: Register Models
+            // Step 3: Register Models (after SDK init to prevent cache clearing)
             registerModels()
 
             // Step 4: Scan for previously downloaded models
             RunAnywhere.scanForDownloadedModels()
+            Log.i("MyApp", "✅ Scanned for downloaded models")
 
-            Log.i("MyApp", "SDK initialized successfully")
+            Log.i("MyApp", "🎉 SDK initialization complete!")
 
         } catch (e: Exception) {
-            Log.e("MyApp", "SDK initialization failed: ${e.message}")
+            Log.e("MyApp", "❌ SDK initialization failed: ${e.message}", e)
+            e.printStackTrace()
         }
     }
 
@@ -76,6 +88,7 @@ class MyApplication : Application() {
 
         } catch (e: Exception) {
             Log.e("MyApplication", "❌ Error registering models", e)
+            e.printStackTrace()
         }
     }
 }

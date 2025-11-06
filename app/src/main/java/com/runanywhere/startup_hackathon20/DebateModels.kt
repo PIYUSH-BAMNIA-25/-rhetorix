@@ -103,6 +103,15 @@ data class TurnScore(
     val factCheck: String
 )
 
+// Accumulated Scores During Debate
+@Serializable
+data class AccumulatedScores(
+    val playerTotalScore: Int,
+    val aiTotalScore: Int,
+    val playerTurnCount: Int,
+    val aiTurnCount: Int
+)
+
 // Chat History for Judging Context
 @Serializable
 data class ChatTurn(

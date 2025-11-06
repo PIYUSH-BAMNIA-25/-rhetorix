@@ -38,12 +38,20 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
     private val _statusMessage = MutableStateFlow("Welcome to Debate Arena!")
     val statusMessage: StateFlow<String> = _statusMessage
 
+    // Navigation hints for MainActivity
+    private val _needsModelDownload = MutableStateFlow(false)
+    val needsModelDownload: StateFlow<Boolean> = _needsModelDownload
+
     // Score pop-up state
     private val _showScorePopup = MutableStateFlow(false)
     val showScorePopup: StateFlow<Boolean> = _showScorePopup
 
     private val _currentTurnScore = MutableStateFlow<TurnScore?>(null)
     val currentTurnScore: StateFlow<TurnScore?> = _currentTurnScore
+
+    // Accumulated scores during debate
+    private val _accumulatedScores = MutableStateFlow<AccumulatedScores?>(null)
+    val accumulatedScores: StateFlow<AccumulatedScores?> = _accumulatedScores
 
     // AI typing animation state
     private val _aiTypingText = MutableStateFlow("")
@@ -86,7 +94,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             dateOfBirth = dateOfBirth
         )
         _currentUser.value = user
-        _currentScreen.value = DebateScreen.MAIN_MENU
+        // DO NOT set _currentScreen - MainActivity handles all navigation
         _statusMessage.value = "Welcome, $name!"
     }
 
@@ -103,41 +111,184 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
         _currentSession.value = session.copy(
             currentTurn = firstPlayerId
         )
+
+        Log.d(
+            "DebateViewModel",
+            "🎲 First turn set to: $firstPlayerId (playerStarts: $playerStarts)"
+        )
+
+        // If AI starts first AND we're in prep time, do nothing yet
+        // The AI will start when debate transitions to IN_PROGRESS
+        if (!playerStarts && session.status == DebateStatus.PREP_TIME) {
+            Log.d("DebateViewModel", "🤖 AI will start when debate begins (after prep time)")
+        } else if (!playerStarts && session.status == DebateStatus.IN_PROGRESS) {
+            // If somehow we're already in progress and AI should start, generate now
+            Log.d("DebateViewModel", "🤖 AI starts first, generating opening statement...")
+            viewModelScope.launch {
+                delay(1000) // Small delay for UX
+                generateAIResponseWithDelay(session.copy(currentTurn = firstPlayerId))
+            }
+        }
     }
 
     // === GAME START ===
     fun startDebate(gameMode: GameMode) {
         val user = _currentUser.value ?: return
+        Log.d("DebateViewModel", "🚀 startDebate called with mode: $gameMode, user: ${user.name}")
 
         viewModelScope.launch {
             _isLoading.value = true
-            _statusMessage.value = "Loading AI model and generating topic..."
+            _statusMessage.value = "Preparing debate..."
+            Log.d("DebateViewModel", "📝 Status set to: Preparing debate...")
 
             try {
-                // Step 1: Load appropriate model based on difficulty
-                val modelToUse = when (gameMode) {
-                    GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"
-                    GameMode.AI_INTERMEDIATE,
-                    GameMode.AI_ADVANCED,
-                    GameMode.PVP -> "Qwen 2.5 3B Instruct Q6_K"
+                // Step 0: Check if models exist first
+                _statusMessage.value = "Checking available models..."
+                Log.d("DebateViewModel", "📝 Checking available models...")
+                val models = try {
+                    listAvailableModels()
+                } catch (e: Exception) {
+                    Log.e("DebateViewModel", "Error listing models", e)
+                    emptyList()
                 }
 
-                // Check if model is ready
-                if (_currentModelId.value != modelToUse) {
-                    _statusMessage.value = "Loading AI model..."
-                    val success = RunAnywhere.loadModel(modelToUse)
+                if (models.isEmpty()) {
+                    Log.e("DebateViewModel", "❌ No models found!")
+                    _statusMessage.value =
+                        "⚠️ No models registered! Please wait for app to initialize, then try again."
+                    _isLoading.value = false
+                    delay(3000)
+                    return@launch
+                }
+
+                Log.d("DebateViewModel", "Found ${models.size} models: ${models.map { it.name }}")
+
+                // Step 1: Determine which model to use based on difficulty
+                val modelToUse = when (gameMode) {
+                    GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"  // Fixed: matches MyApplication
+                    GameMode.AI_INTERMEDIATE,
+                    GameMode.AI_ADVANCED,
+                    GameMode.PVP -> "Qwen 2.5 3B Instruct Q6_K"  // Fixed: matches MyApplication
+                }
+
+                _statusMessage.value = "Looking for model: $modelToUse..."
+                Log.d("DebateViewModel", "🔍 Looking for model: $modelToUse")
+
+                // Step 2: Check if model exists and is downloaded
+                val targetModel = models.find { it.name == modelToUse }
+
+                if (targetModel == null) {
+                    Log.e("DebateViewModel", "❌ Model not found: $modelToUse")
+                    _statusMessage.value =
+                        "⚠️ Model '$modelToUse' not found!\n\nPlease restart the app to allow models to register properly."
+                    _isLoading.value = false
+                    delay(5000)
+                    return@launch
+                }
+
+                Log.d(
+                    "DebateViewModel",
+                    "✅ Model found: ${targetModel.name}, isDownloaded: ${targetModel.isDownloaded}"
+                )
+
+                if (!targetModel.isDownloaded) {
+                    Log.e("DebateViewModel", "❌ Model not downloaded: $modelToUse")
+                    _needsModelDownload.value = true
+                    _statusMessage.value =
+                        "⚠️ Model not downloaded yet!\n\nPlease download '$modelToUse' from the Model Setup screen first."
+                    _isLoading.value = false
+                    delay(5000)
+                    return@launch
+                }
+
+                // Step 3: Load model if not already loaded
+                _statusMessage.value = "Loading AI model..."
+                Log.d("DebateViewModel", "🔄 Loading model: $modelToUse")
+                if (_currentModelId.value != targetModel.id) {
+                    Log.d("DebateViewModel", "Loading model with ID: ${targetModel.id}")
+                    val success = try {
+                        RunAnywhere.loadModel(targetModel.id)
+                    } catch (e: Exception) {
+                        Log.e("DebateViewModel", "Error loading model", e)
+                        false
+                    }
+
                     if (success) {
-                        _currentModelId.value = modelToUse
+                        _currentModelId.value = targetModel.id
+                        Log.d("DebateViewModel", "✅ Model loaded successfully!")
+
+                        // CRITICAL: Wait for model to fully initialize
+                        _statusMessage.value = "Initializing AI model..."
+                        delay(5000) // Increased from 2 seconds to 5 seconds
+                        Log.d("DebateViewModel", "✅ Model initialization complete")
                     } else {
+                        Log.e("DebateViewModel", "❌ Failed to load model!")
                         _statusMessage.value =
-                            "Model not ready. Please wait for download to complete."
+                            "❌ Failed to load model.\n\nPlease try again or restart the app."
                         _isLoading.value = false
+                        delay(5000)
                         return@launch
+                    }
+                } else {
+                    Log.d("DebateViewModel", "✅ Model already loaded with ID: ${targetModel.id}")
+                    // Still wait a bit to ensure it's ready
+                    delay(2000) // Increased from 500ms to 2 seconds
+                }
+
+                // Step 3.5: Verify model is actually ready by testing generation
+                _statusMessage.value = "Testing AI connection..."
+                Log.d("DebateViewModel", "🧪 Testing model with simple prompt...")
+
+                // WORKAROUND: Force SDK to re-scan models (might wake up GenerationService)
+                try {
+                    RunAnywhere.scanForDownloadedModels()
+                    delay(1000)
+                    Log.d("DebateViewModel", "🔄 Re-scanned models as workaround")
+                } catch (e: Exception) {
+                    Log.e("DebateViewModel", "Failed to re-scan models", e)
+                }
+
+                var testSuccess = false
+                var attempts = 0
+                val maxAttempts = 3
+
+                while (!testSuccess && attempts < maxAttempts) {
+                    attempts++
+                    try {
+                        Log.d("DebateViewModel", "🧪 Test attempt $attempts/$maxAttempts...")
+                        // Try streaming API first (might work even if generate() doesn't)
+                        val testResponse = StringBuilder()
+                        RunAnywhere.generateStream("Say 'ready'").collect { token ->
+                            testResponse.append(token)
+                        }
+                        Log.d(
+                            "DebateViewModel",
+                            "✅ Model test successful (streaming): $testResponse"
+                        )
+                        testSuccess = true
+                    } catch (e: Exception) {
+                        Log.e("DebateViewModel", "❌ Model test attempt $attempts failed", e)
+                        if (attempts < maxAttempts) {
+                            _statusMessage.value = "Retrying AI test... ($attempts/$maxAttempts)"
+                            delay(2000) // Wait 2 seconds between retries
+                        }
                     }
                 }
 
-                // Step 2: Generate dynamic topic using AI
+                // If test still fails, show warning but continue anyway
+                // The model might work during actual debate after more time
+                if (!testSuccess) {
+                    Log.w(
+                        "DebateViewModel",
+                        "⚠️ Model test failed after $maxAttempts attempts, but continuing anyway..."
+                    )
+                    _statusMessage.value = "⚠️ AI test incomplete, but proceeding..."
+                    delay(1000)
+                }
+
+                // Step 4: Generate dynamic topic using AI
                 _statusMessage.value = "Generating debate topic from current events..."
+                Log.d("DebateViewModel", "🎲 Generating topic...")
 
                 val skillLevel = when (gameMode) {
                     GameMode.AI_BEGINNER -> SkillLevel.BEGINNER
@@ -151,10 +302,11 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                     category = TopicCategory.RANDOM,
                     difficulty = skillLevel
                 )
+                Log.d("DebateViewModel", "✅ Topic generated: ${topic.title}")
 
                 val aiSide = if (playerSide == DebateSide.FOR) DebateSide.AGAINST else DebateSide.FOR
 
-                // Step 3: Create AI opponent with balanced IQ
+                // Step 5: Create AI opponent with balanced IQ
                 val aiIQ = getBalancedAIIQ(gameMode)
                 val aiOpponent = User(
                     id = "ai_opponent",
@@ -162,8 +314,9 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                     email = "ai@debate.com",
                     skillLevel = skillLevel
                 )
+                Log.d("DebateViewModel", "✅ AI opponent created with IQ: $aiIQ")
 
-                // Step 4: Create debate session
+                // Step 6: Create debate session
                 val session = DebateSession(
                     id = UUID.randomUUID().toString(),
                     topic = topic,
@@ -178,20 +331,29 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                     startTime = System.currentTimeMillis()
                 )
 
+                Log.d("DebateViewModel", "🎮 Session created with ID: ${session.id}")
                 _currentSession.value = session
-                _currentScreen.value = DebateScreen.DEBATE_PREP
+                Log.d("DebateViewModel", "✅ Session set to StateFlow, status: ${session.status}")
+                // DO NOT set _currentScreen - MainActivity will observe currentSession and navigate
+                // _currentScreen.value = DebateScreen.DEBATE_PREP
 
                 // Clear chat history for new debate
                 chatHistory.clear()
 
                 // Start prep timer (30 seconds)
+                _statusMessage.value = "Everything ready! Starting preparation phase..."
+                Log.d("DebateViewModel", " Starting prep timer...")
                 startPrepTimer()
 
             } catch (e: Exception) {
-                _statusMessage.value = "Error starting debate: ${e.message}"
+                Log.e("DebateViewModel", "❌ CRITICAL ERROR in startDebate", e)
+                _statusMessage.value =
+                    "❌ Error starting debate: ${e.message}\n\nPlease try again or restart the app."
                 Log.e("DebateViewModel", "Error starting debate", e)
+                delay(5000)
             } finally {
                 _isLoading.value = false
+                Log.d("DebateViewModel", "🏁 startDebate finally block reached")
             }
         }
     }
@@ -213,22 +375,48 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun startPrepTimer() {
-        _statusMessage.value = "Study your topic and side! Debate starts in 30 seconds..."
-        
+        _statusMessage.value = "Study your topic and side! Debate starts soon..."
+
+        // Countdown from 30 to 1
         for (i in 30 downTo 1) {
             _timeRemaining.value = i * 1000L
+            // Update status message to show countdown
+            _statusMessage.value = "Preparation time: ${i}s remaining..."
             delay(1000)
         }
-        
+
+        // Initialize accumulated scores when debate starts
+        _accumulatedScores.value = AccumulatedScores(
+            playerTotalScore = 0,
+            aiTotalScore = 0,
+            playerTurnCount = 0,
+            aiTurnCount = 0
+        )
+
         // Start actual debate
         val session = _currentSession.value ?: return
-        _currentSession.value = session.copy(
+        val updatedSession = session.copy(
             status = DebateStatus.IN_PROGRESS,
             timeRemaining = 600000 // Reset to 10 minutes
         )
-        _currentScreen.value = DebateScreen.DEBATE_ACTIVE
-        _statusMessage.value = "Debate started! You have 10 minutes total."
-        
+        _currentSession.value = updatedSession
+        _statusMessage.value = "Debate started! Make your arguments count."
+
+        // If AI starts first, generate its opening statement now
+        if (updatedSession.currentTurn == "ai_opponent") {
+            Log.d(
+                "DebateViewModel",
+                "🤖 AI starts first, generating opening statement after prep..."
+            )
+            viewModelScope.launch {
+                delay(1000)
+                generateAIResponseWithDelay(updatedSession)
+            }
+        } else {
+            Log.d("DebateViewModel", "👤 Player starts first, waiting for input...")
+            _statusMessage.value = "Your turn! Start the debate with your opening argument."
+        }
+
         startDebateTimer()
     }
 
@@ -240,9 +428,24 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             delay(1000)
             timeLeft -= 1000
             _timeRemaining.value = timeLeft
-            
-            // Update session
-            _currentSession.value = _currentSession.value?.copy(timeRemaining = timeLeft)
+
+            // Update session with new time - preserve currentTurn!
+            val currentSess = _currentSession.value
+            if (currentSess != null && currentSess.status == DebateStatus.IN_PROGRESS) {
+                _currentSession.value = currentSess.copy(timeRemaining = timeLeft)
+            }
+
+            // Update status message based on time remaining (only if not already showing other message)
+            when {
+                timeLeft <= 60000 && !_statusMessage.value.contains("turn") ->
+                    _statusMessage.value = "⏰ 1 minute remaining!"
+
+                timeLeft <= 120000 && !_statusMessage.value.contains("turn") ->
+                    _statusMessage.value = "⏰ 2 minutes remaining!"
+
+                timeLeft <= 300000 && timeLeft % 60000L == 0L && !_statusMessage.value.contains("turn") ->
+                    _statusMessage.value = "⏰ ${timeLeft / 60000} minutes remaining!"
+            }
         }
 
         // Time's up!
@@ -256,12 +459,23 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
         val session = _currentSession.value ?: return
         val user = _currentUser.value ?: return
 
+        Log.d("DebateViewModel", "📤 sendDebateMessage called: '$message'")
+
         if (session.currentTurn != user.id) {
             _statusMessage.value = "Not your turn!"
+            Log.d(
+                "DebateViewModel",
+                "❌ Not player's turn. Current turn: ${session.currentTurn}, Player ID: ${user.id}"
+            )
             return
         }
 
-        if (message.isBlank()) return
+        if (message.isBlank()) {
+            Log.d("DebateViewModel", "❌ Message is blank, ignoring")
+            return
+        }
+
+        Log.d("DebateViewModel", "✅ Valid message from player, processing...")
 
         viewModelScope.launch {
             try {
@@ -278,6 +492,11 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 val updatedMessages = session.messages + userMessage
                 _currentSession.value = session.copy(messages = updatedMessages)
 
+                Log.d(
+                    "DebateViewModel",
+                    "📝 Player message added to session (Turn ${userMessage.turnNumber})"
+                )
+
                 // Store in chat history for judging
                 chatHistory.add(
                     ChatTurn(
@@ -289,6 +508,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
 
                 // JUDGE PLAYER'S RESPONSE
                 _statusMessage.value = "⚖️ Judging your argument..."
+                Log.d("DebateViewModel", "⚖️ Judging player's argument...")
                 val playerScore = judgeResponse(
                     currentResponse = message,
                     previousOpponentResponse = chatHistory.findLast { it.speaker == "ai" }?.message
@@ -297,16 +517,30 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                     difficulty = session.gameMode
                 )
 
+                Log.d("DebateViewModel", "Player Score: ${playerScore.score}/10")
+
                 // Show score pop-up
                 _currentTurnScore.value = playerScore
                 _showScorePopup.value = true
                 delay(3000) // Show for 3 seconds
                 _showScorePopup.value = false
 
+                // Update accumulated scores
+                val accumulated = _accumulatedScores.value ?: AccumulatedScores(0, 0, 0, 0)
+                _accumulatedScores.value = accumulated.copy(
+                    playerTotalScore = accumulated.playerTotalScore + playerScore.score,
+                    playerTurnCount = accumulated.playerTurnCount + 1
+                )
+
                 // Switch to AI turn
                 _currentSession.value = session.copy(
                     messages = updatedMessages,
                     currentTurn = "ai_opponent"
+                )
+
+                Log.d(
+                    "DebateViewModel",
+                    "🔄 Switching to AI turn, calling generateAIResponseWithDelay..."
                 )
 
                 // Generate AI response with realistic delay
@@ -315,6 +549,8 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             } catch (e: Exception) {
                 _statusMessage.value = "Error: ${e.message}"
                 Log.e("DebateViewModel", "Error sending message", e)
+                // Switch back to player anyway
+                _currentSession.value = session.copy(currentTurn = _currentUser.value?.id ?: "")
             }
         }
     }
@@ -324,31 +560,118 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
      */
     private suspend fun generateAIResponseWithDelay(session: DebateSession) {
         try {
-            // AI "thinking" time (20-40 seconds like a human)
-            val thinkingTime = Random.nextLong(20000, 40000)
+            // Always use the latest session from state to avoid race conditions
+            val currentSession = _currentSession.value ?: return
+
             _statusMessage.value = "🧠 AI is thinking..."
             _isAITyping.value = false
 
-            // Generate response during thinking time
-            val aiPrompt = buildAIPrompt(session)
-            var aiResponseText = ""
+            // Generate response (this may take time)
+            val aiPrompt = buildAIPrompt(currentSession)
+            Log.d("DebateViewModel", "🤖 Generating AI response...")
+            Log.d("DebateViewModel", "AI Prompt:\n$aiPrompt")
 
-            // Start generation (asynchronous)
-            viewModelScope.launch {
-                aiResponseText = RunAnywhere.generate(aiPrompt)
+            val aiResponseText = try {
+                // Try using streaming API instead - different code path
+                val response = StringBuilder()
+                try {
+                    RunAnywhere.generateStream(aiPrompt).collect { token ->
+                        response.append(token)
+                    }
+                    response.toString()
+                } catch (streamError: Exception) {
+                    Log.e(
+                        "DebateViewModel",
+                        "❌ Streaming also failed, trying regular generate",
+                        streamError
+                    )
+                    RunAnywhere.generate(aiPrompt)
+                }
+            } catch (e: Exception) {
+                Log.e("DebateViewModel", "❌ AI generation failed", e)
+
+                // Check if it's the LLM not initialized error
+                if (e.message?.contains("LLM component not initialized") == true) {
+                    // Try waiting and retrying
+                    Log.w(
+                        "DebateViewModel",
+                        "⚠️ LLM not initialized, waiting 3 seconds and retrying..."
+                    )
+                    delay(3000)
+
+                    try {
+                        Log.d("DebateViewModel", "🔄 Retry attempt...")
+                        RunAnywhere.generate(aiPrompt)
+                    } catch (e2: Exception) {
+                        Log.e("DebateViewModel", "❌ Retry also failed", e2)
+
+                        _statusMessage.value =
+                            "❌ AI model not ready. Please restart the debate and ensure the model is loaded."
+                        Log.e(
+                            "DebateViewModel",
+                            "CRITICAL: LLM component not initialized - model was not loaded properly!"
+                        )
+                        delay(3000)
+
+                        // End the debate with an error
+                        _currentSession.value = session.copy(
+                            status = DebateStatus.FINISHED,
+                            scores = DebateScores(
+                                player1Score = PlayerScore(
+                                    playerId = session.player1.id,
+                                    playerName = session.player1.name,
+                                    logicReasoning = 5,
+                                    evidenceQuality = 5,
+                                    toneRespect = 5,
+                                    counterArguments = 5,
+                                    factualAccuracy = 5,
+                                    totalScore = 25,
+                                    feedback = "Debate ended due to technical error"
+                                ),
+                                player2Score = PlayerScore(
+                                    playerId = "ai_opponent",
+                                    playerName = "AI Debater",
+                                    logicReasoning = 0,
+                                    evidenceQuality = 0,
+                                    toneRespect = 0,
+                                    counterArguments = 0,
+                                    factualAccuracy = 0,
+                                    totalScore = 0,
+                                    feedback = "AI model was not available"
+                                ),
+                                winner = session.player1.id,
+                                feedback = "Technical Error: AI model not available. Please restart the app and try again.",
+                                detailedAnalysis = "The debate ended early because the AI model was not properly initialized. Please:\n\n1. Restart the app\n2. Go to Model Setup from the home screen\n3. Ensure the model is downloaded AND loaded\n4. Try starting a debate again"
+                            )
+                        )
+                        return
+                    }
+                } else {
+                    _statusMessage.value = "❌ AI failed to respond. Skipping AI turn..."
+                    delay(2000)
+                    // Switch back to player
+                    _currentSession.value = session.copy(currentTurn = _currentUser.value?.id ?: "")
+                    _statusMessage.value = "Your turn! (AI couldn't respond)"
+                    return
+                }
             }
 
-            // Wait for thinking time
-            delay(thinkingTime)
+            Log.d("DebateViewModel", "✅ AI generated response: $aiResponseText")
 
-            // Wait for response to be ready (if not already)
-            while (aiResponseText.isEmpty()) {
-                delay(100)
+            // Trim to reasonable length (3-4 sentences max)
+            val trimmedResponse = aiResponseText.lines()
+                .filter { it.isNotBlank() }
+                .take(4)
+                .joinToString("\n")
+                .take(300) // Max 300 chars
+                .trim()
+
+            if (trimmedResponse.isEmpty()) {
+                Log.e("DebateViewModel", "❌ AI response was empty!")
+                _statusMessage.value = "AI couldn't generate a response. Your turn!"
+                _currentSession.value = session.copy(currentTurn = _currentUser.value?.id ?: "")
+                return
             }
-
-            // Trim to 3-4 lines max
-            val lines = aiResponseText.lines().take(4)
-            aiResponseText = lines.joinToString("\n")
 
             // Show typing animation
             _isAITyping.value = true
@@ -356,7 +679,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             _statusMessage.value = "💭 AI is responding..."
 
             // Type word by word
-            val words = aiResponseText.split(" ")
+            val words = trimmedResponse.split(" ")
             for (word in words) {
                 _aiTypingText.value += "$word "
                 delay(100) // 100ms per word
@@ -369,7 +692,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 id = UUID.randomUUID().toString(),
                 playerId = "ai_opponent",
                 playerName = "AI Debater",
-                message = aiResponseText.trim(),
+                message = trimmedResponse,
                 timestamp = System.currentTimeMillis(),
                 turnNumber = session.messages.size + 1
             )
@@ -380,26 +703,36 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             chatHistory.add(
                 ChatTurn(
                     speaker = "ai",
-                    message = aiResponseText.trim(),
+                    message = trimmedResponse,
                     timestamp = System.currentTimeMillis()
                 )
             )
 
+            Log.d("DebateViewModel", "⚖️ Judging AI response...")
             // JUDGE AI'S RESPONSE
             _statusMessage.value = "⚖️ Judging AI's argument..."
             val aiScore = judgeResponse(
-                currentResponse = aiResponseText.trim(),
+                currentResponse = trimmedResponse,
                 previousOpponentResponse = chatHistory.findLast { it.speaker == "player" }?.message
                     ?: "",
                 speaker = "AI",
                 difficulty = session.gameMode
             )
 
+            Log.d("DebateViewModel", "AI Score: ${aiScore.score}/10")
+
             // Show AI score pop-up
             _currentTurnScore.value = aiScore
             _showScorePopup.value = true
             delay(3000) // Show for 3 seconds
             _showScorePopup.value = false
+
+            // Update accumulated scores
+            val accumulated = _accumulatedScores.value ?: AccumulatedScores(0, 0, 0, 0)
+            _accumulatedScores.value = accumulated.copy(
+                aiTotalScore = accumulated.aiTotalScore + aiScore.score,
+                aiTurnCount = accumulated.aiTurnCount + 1
+            )
 
             // Back to player turn
             _currentSession.value = session.copy(
@@ -408,6 +741,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             )
 
             _statusMessage.value = "Your turn! Respond to the AI's argument."
+            Log.d("DebateViewModel", "✅ AI turn complete, back to player")
 
         } catch (e: Exception) {
             _statusMessage.value = "AI response failed: ${e.message}"
@@ -434,10 +768,23 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 speaker = speaker
             )
 
-            val judgeResponse = RunAnywhere.generate(judgingPrompt)
+            // Use streaming API for judging (more reliable)
+            val judgeResponse = StringBuilder()
+            try {
+                RunAnywhere.generateStream(judgingPrompt).collect { token ->
+                    judgeResponse.append(token)
+                }
+            } catch (e: Exception) {
+                Log.e("DebateViewModel", " Streaming judging failed, trying regular generate", e)
+                // Fallback to regular generate
+                val fallbackResponse = RunAnywhere.generate(judgingPrompt)
+                judgeResponse.clear()
+                judgeResponse.append(fallbackResponse)
+            }
+
             Log.d("DebateViewModel", "Judge response for $speaker: $judgeResponse")
 
-            parseJudgeScore(judgeResponse, speaker)
+            parseJudgeScore(judgeResponse.toString(), speaker)
 
         } catch (e: Exception) {
             Log.e("DebateViewModel", "Error judging response", e)
@@ -445,7 +792,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             TurnScore(
                 speaker = speaker,
                 score = 5,
-                reasoning = "Unable to score this turn",
+                reasoning = "Unable to score this turn due to technical error",
                 hasProfanity = false,
                 factCheck = "Not evaluated"
             )
@@ -602,7 +949,8 @@ Your SHORT response (3-4 lines only):
         
         _currentSession.value = session.copy(status = DebateStatus.JUDGING)
         _statusMessage.value = "Time's up! AI is judging the debate..."
-        _currentScreen.value = DebateScreen.DEBATE_RESULTS
+        // DO NOT set _currentScreen - MainActivity will observe currentSession and navigate
+        // _currentScreen.value = DebateScreen.DEBATE_RESULTS
 
         // Generate comprehensive scores and feedback
         generateDebateScores(session)
@@ -631,8 +979,8 @@ Your SHORT response (3-4 lines only):
                 status = DebateStatus.FINISHED,
                 scores = finalScores
             )
-            
-            val winner = if (scores.player1Score.totalScore > scores.player2Score.totalScore) 
+
+            val winner = if (scores.winner == session.player1.id)
                 session.player1.name else "AI Debater"
             
             _statusMessage.value = "Debate complete! Winner: $winner"
@@ -915,7 +1263,8 @@ Generate your comprehensive feedback:
 
     fun startNewDebate() {
         _currentSession.value = null
-        _currentScreen.value = DebateScreen.MAIN_MENU
+        // DO NOT set _currentScreen - MainActivity will observe currentSession and navigate
+        // _currentScreen.value = DebateScreen.MAIN_MENU
         _statusMessage.value = "Ready for another debate!"
     }
 
@@ -955,7 +1304,13 @@ Generate your comprehensive feedback:
         viewModelScope.launch {
             try {
                 _statusMessage.value = "Loading AI model..."
-                val success = RunAnywhere.loadModel(modelId)
+                val success = try {
+                    RunAnywhere.loadModel(modelId)
+                } catch (e: Exception) {
+                    Log.e("DebateViewModel", "Error loading model", e)
+                    false
+                }
+
                 if (success) {
                     _currentModelId.value = modelId
                     _statusMessage.value = "AI model loaded! Ready to debate."
@@ -970,6 +1325,10 @@ Generate your comprehensive feedback:
 
     fun refreshModels() {
         loadAvailableModels()
+    }
+
+    fun resetModelDownloadFlag() {
+        _needsModelDownload.value = false
     }
 
     enum class DebateScreen {

@@ -1,4 +1,4 @@
-package com.runanywhere.startup_hackathon20.viewmodel
+package com.runanywhere.startup_hackathon20
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
