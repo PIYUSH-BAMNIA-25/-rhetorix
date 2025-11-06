@@ -867,6 +867,57 @@ Now evaluate the response above:
     }
 
     /**
+     * Parse simple text format instead of JSON
+     * Looks for "Score: X/10" pattern and extracts information
+     */
+    private fun parseJudgeScoreFromText(response: String, speaker: String): TurnScore {
+        return try {
+            // Extract score - look for patterns like "Score: 7/10" or "Score: 7"
+            val scoreRegex = """Score:\s*(\d+)""".toRegex(RegexOption.IGNORE_CASE)
+            val scoreMatch = scoreRegex.find(response)
+            val score = scoreMatch?.groupValues?.get(1)?.toIntOrNull() ?: 5
+
+            // Extract reasoning - look for "Reasoning: ..." until next field or end
+            val reasoningRegex = """Reasoning:\s*([^\n]+)""".toRegex(RegexOption.IGNORE_CASE)
+            val reasoningMatch = reasoningRegex.find(response)
+            val reasoning = reasoningMatch?.groupValues?.get(1)?.trim() ?: "No specific feedback"
+
+            // Extract profanity - look for "Profanity: yes/no"
+            val profanityRegex = """Profanity:\s*(yes|no)""".toRegex(RegexOption.IGNORE_CASE)
+            val profanityMatch = profanityRegex.find(response)
+            val hasProfanity =
+                profanityMatch?.groupValues?.get(1)?.equals("yes", ignoreCase = true) ?: false
+
+            // Extract facts - look for "Facts: ..."
+            val factsRegex = """Facts:\s*([^\n]+)""".toRegex(RegexOption.IGNORE_CASE)
+            val factsMatch = factsRegex.find(response)
+            val factCheck = factsMatch?.groupValues?.get(1)?.trim() ?: "Not evaluated"
+
+            Log.d(
+                "DebateViewModel",
+                "✅ Parsed: score=$score, reasoning=$reasoning, profanity=$hasProfanity"
+            )
+
+            TurnScore(
+                speaker = speaker,
+                score = score.coerceIn(0, 10), // Ensure score is between 0-10
+                reasoning = reasoning,
+                hasProfanity = hasProfanity,
+                factCheck = factCheck
+            )
+        } catch (e: Exception) {
+            Log.e("DebateViewModel", "Error parsing judge score from text", e)
+            TurnScore(
+                speaker = speaker,
+                score = 5,
+                reasoning = "Unable to parse evaluation",
+                hasProfanity = false,
+                factCheck = "Not evaluated"
+            )
+        }
+    }
+
+    /**
      * Build AI debate prompt with IQ-based difficulty
      */
     private fun buildAIPrompt(session: DebateSession): String {
