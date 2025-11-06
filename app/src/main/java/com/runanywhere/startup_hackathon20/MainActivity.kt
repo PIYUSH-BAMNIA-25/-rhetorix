@@ -17,6 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.runanywhere.startup_hackathon20.database.UserEntity
 import com.runanywhere.startup_hackathon20.ui.theme.Startup_hackathon20Theme
 import com.runanywhere.startup_hackathon20.viewmodel.AuthViewModel
+import com.runanywhere.startup_hackathon20.DebateViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,10 +47,25 @@ sealed class Screen {
 fun AppNavigation() {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Auth) }
     var currentUser by remember { mutableStateOf<UserEntity?>(null) }
+    var userId by remember { mutableStateOf<String?>(null) }
 
     // Initialize ViewModels
     val authViewModel: AuthViewModel = viewModel()
     val debateViewModel: DebateViewModel = viewModel()
+
+    // Set current user in DebateViewModel when user logs in
+    LaunchedEffect(currentUser) {
+        currentUser?.let { user ->
+            // Login user in DebateViewModel with database ID
+            debateViewModel.loginUser(
+                userId = user.id,
+                name = user.name,
+                email = user.email,
+                dateOfBirth = user.dateOfBirth
+            )
+            userId = user.id.toString()
+        }
+    }
 
     when (currentScreen) {
         // 1. AUTH SCREEN (Sign In / Login)
@@ -72,6 +88,7 @@ fun AppNavigation() {
                         email = user.email,
                         dateOfBirth = user.dateOfBirth
                     ),
+                    userWins = user.wins,
                     onModeSelected = { mode ->
                         when (mode) {
                             GameMode.PVP -> {
@@ -100,6 +117,7 @@ fun AppNavigation() {
         // 3. AI MODE SELECTION (Beginner / Intermediate / Advanced)
         Screen.AIModeSelection -> {
             AIPracticeModeScreen(
+                userWins = currentUser?.wins ?: 0,
                 onDifficultySelected = { selectedMode ->
                     // Start debate with selected difficulty
                     debateViewModel.startDebate(selectedMode)

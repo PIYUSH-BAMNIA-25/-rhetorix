@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [UserEntity::class, DebateHistoryEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class RhetorixDatabase : RoomDatabase() {
@@ -26,8 +26,7 @@ abstract class RhetorixDatabase : RoomDatabase() {
                     RhetorixDatabase::class.java,
                     "rhetorix_database"
                 )
-                    // Removed .fallbackToDestructiveMigration() to preserve data
-                    // Data will persist even when device disconnects
+                    .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
                 instance

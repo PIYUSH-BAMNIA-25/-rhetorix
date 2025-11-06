@@ -1,8 +1,29 @@
 package com.runanywhere.startup_hackathon20.database
 
 import kotlinx.coroutines.flow.Flow
+import kotlin.random.Random
 
 class UserRepository(private val userDao: UserDao, private val debateHistoryDao: DebateHistoryDao) {
+
+    /**
+     * Generate unique Player ID in format RXXXXXX
+     * Example: R123456, R987654
+     */
+    private suspend fun generatePlayerId(): String {
+        var playerId: String
+        var isUnique: Boolean
+
+        do {
+            // Generate 6-digit random number
+            val randomNumber = Random.nextInt(100000, 999999)
+            playerId = "R$randomNumber"
+
+            // Check if this ID already exists
+            isUnique = userDao.getUserByPlayerId(playerId) == null
+        } while (!isUnique)
+
+        return playerId
+    }
 
     // User Authentication
     suspend fun signUp(
@@ -17,7 +38,11 @@ class UserRepository(private val userDao: UserDao, private val debateHistoryDao:
             if (existingUser != null) {
                 Result.failure(Exception("Email already registered"))
             } else {
+                // Generate unique player ID
+                val playerId = generatePlayerId()
+
                 val user = UserEntity(
+                    playerId = playerId,
                     name = name,
                     email = email,
                     password = password,

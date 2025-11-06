@@ -1,17 +1,24 @@
 package com.runanywhere.startup_hackathon20
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.runanywhere.sdk.public.RunAnywhere
 import com.runanywhere.sdk.public.extensions.listAvailableModels
 import com.runanywhere.sdk.models.ModelInfo
+import com.runanywhere.startup_hackathon20.database.RhetorixDatabase
+import com.runanywhere.startup_hackathon20.database.UserRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.util.UUID
 
-class DebateViewModel : ViewModel() {
+class DebateViewModel(application: Application) : AndroidViewModel(application) {
+
+    // Database
+    private val database = RhetorixDatabase.getDatabase(application)
+    private val userRepository = UserRepository(database.userDao(), database.debateHistoryDao())
 
     // Current debate session
     private val _currentSession = MutableStateFlow<DebateSession?>(null)
@@ -51,9 +58,9 @@ class DebateViewModel : ViewModel() {
     }
 
     // === USER AUTHENTICATION ===
-    fun loginUser(name: String, email: String, dateOfBirth: String) {
+    fun loginUser(userId: Long, name: String, email: String, dateOfBirth: String) {
         val user = User(
-            id = UUID.randomUUID().toString(),
+            id = userId.toString(), // Use database ID
             name = name,
             email = email,
             dateOfBirth = dateOfBirth
@@ -66,44 +73,61 @@ class DebateViewModel : ViewModel() {
     // === GAME START ===
     fun startDebate(gameMode: GameMode) {
         val user = _currentUser.value ?: return
-        
-        if (_currentModelId.value == null) {
-            _statusMessage.value = "Please load an AI model first!"
-            return
-        }
 
         viewModelScope.launch {
             _isLoading.value = true
-            _statusMessage.value = "Setting up debate..."
+            _statusMessage.value = "Loading AI model and generating topic..."
 
             try {
-                // Get random topic and sides
-                val topic = DebateTopics.getRandomTopic(
-                    when (gameMode) {
-                        GameMode.AI_BEGINNER -> SkillLevel.BEGINNER
-                        GameMode.AI_INTERMEDIATE -> SkillLevel.INTERMEDIATE
-                        GameMode.AI_ADVANCED -> SkillLevel.ADVANCED
-                        GameMode.PVP -> SkillLevel.INTERMEDIATE // Default for PVP
+                // Step 1: Load appropriate model based on difficulty
+                val modelToUse = when (gameMode) {
+                    GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"
+                    GameMode.AI_INTERMEDIATE,
+                    GameMode.AI_ADVANCED,
+                    GameMode.PVP -> "Qwen 2.5 3B Instruct Q6_K"
+                }
+
+                // Check if model is ready
+                if (_currentModelId.value != modelToUse) {
+                    _statusMessage.value = "Loading AI model..."
+                    val success = RunAnywhere.loadModel(modelToUse)
+                    if (success) {
+                        _currentModelId.value = modelToUse
+                    } else {
+                        _statusMessage.value =
+                            "Model not ready. Please wait for download to complete."
+                        _isLoading.value = false
+                        return@launch
                     }
+                }
+
+                // Step 2: Generate dynamic topic using AI
+                _statusMessage.value = "Generating debate topic from current events..."
+
+                val skillLevel = when (gameMode) {
+                    GameMode.AI_BEGINNER -> SkillLevel.BEGINNER
+                    GameMode.AI_INTERMEDIATE -> SkillLevel.INTERMEDIATE
+                    GameMode.AI_ADVANCED -> SkillLevel.ADVANCED
+                    GameMode.PVP -> SkillLevel.INTERMEDIATE
+                }
+
+                // Use dynamic topic generation
+                val (topic, playerSide) = TopicGenerator.generateDynamicTopic(
+                    category = TopicCategory.RANDOM,
+                    difficulty = skillLevel
                 )
 
-                val playerSide = listOf(DebateSide.FOR, DebateSide.AGAINST).random()
                 val aiSide = if (playerSide == DebateSide.FOR) DebateSide.AGAINST else DebateSide.FOR
 
-                // Create AI opponent
+                // Step 3: Create AI opponent
                 val aiOpponent = User(
                     id = "ai_opponent",
                     name = "AI Debater",
                     email = "ai@debate.com",
-                    skillLevel = when (gameMode) {
-                        GameMode.AI_BEGINNER -> SkillLevel.BEGINNER
-                        GameMode.AI_INTERMEDIATE -> SkillLevel.INTERMEDIATE
-                        GameMode.AI_ADVANCED -> SkillLevel.ADVANCED
-                        GameMode.PVP -> SkillLevel.INTERMEDIATE
-                    }
+                    skillLevel = skillLevel
                 )
 
-                // Create debate session
+                // Step 4: Create debate session
                 val session = DebateSession(
                     id = UUID.randomUUID().toString(),
                     topic = topic,
@@ -309,7 +333,10 @@ class DebateViewModel : ViewModel() {
                 session.player1.name else "AI Debater"
             
             _statusMessage.value = "Debate complete! Winner: $winner"
-            
+
+            // Save debate results to database
+            saveDebateResults(session, scores)
+
         } catch (e: Exception) {
             _statusMessage.value = "Error judging debate: ${e.message}"
         }
@@ -424,6 +451,35 @@ class DebateViewModel : ViewModel() {
             feedback = analysis,
             detailedAnalysis = response
         )
+    }
+
+    /**
+     * Save debate results to database and update user stats
+     */
+    private suspend fun saveDebateResults(session: DebateSession, scores: DebateScores) {
+        try {
+            val userWon = scores.winner == session.player1.id
+
+            // Convert user ID from String to Long (assuming format)
+            val userId = session.player1.id.toLongOrNull() ?: return
+
+            // Save debate history
+            userRepository.saveDebateResult(
+                userId = userId,
+                topic = session.topic.title,
+                userSide = session.player1Side.toString(),
+                opponentType = session.gameMode.toString(),
+                userScore = scores.player1Score.totalScore,
+                opponentScore = scores.player2Score.totalScore,
+                feedback = scores.feedback
+            )
+
+            // User stats are automatically updated in repository.saveDebateResult()
+
+        } catch (e: Exception) {
+            // Log error but don't stop the flow
+            _statusMessage.value = "Warning: Could not save debate results"
+        }
     }
 
     // === NAVIGATION ===
