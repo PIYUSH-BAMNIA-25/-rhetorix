@@ -93,6 +93,24 @@ data class PlayerScore(
     val feedback: String
 )
 
+// Turn-by-Turn Scoring
+@Serializable
+data class TurnScore(
+    val speaker: String, // "Player" or "AI"
+    val score: Int, // 0-10
+    val reasoning: String,
+    val hasProfanity: Boolean,
+    val factCheck: String
+)
+
+// Chat History for Judging Context
+@Serializable
+data class ChatTurn(
+    val speaker: String, // "player" or "ai"
+    val message: String,
+    val timestamp: Long
+)
+
 // Pre-defined Topics Database
 object DebateTopics {
     val BEGINNER_TOPICS = listOf(

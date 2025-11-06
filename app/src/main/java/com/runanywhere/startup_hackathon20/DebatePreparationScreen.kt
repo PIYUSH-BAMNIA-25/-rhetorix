@@ -5,6 +5,9 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,11 +21,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -54,7 +58,9 @@ enum class PrepStage {
     VS_ANIMATION,      // Hologram VS effect
     TOPIC_REVEAL,      // Surprise topic reveal
     SIDE_ASSIGNMENT,   // Show sides (FOR/AGAINST)
+    COIN_CHOICE,       // Player chooses Heads or Tails
     COIN_TOSS,         // Coin flip animation
+    COIN_RESULT,       // Show result of coin toss
     COUNTDOWN,         // 3-2-1 countdown
     READY              // Transition to debate
 }
@@ -72,6 +78,8 @@ fun DebatePreparationScreen(
 ) {
     var currentStage by remember { mutableStateOf(PrepStage.VS_ANIMATION) }
     var playerStarts by remember { mutableStateOf(false) }
+    var playerChoice by remember { mutableStateOf("") }
+    var coinResult by remember { mutableStateOf("") }
 
     // Auto-progress through stages
     LaunchedEffect(currentStage) {
@@ -88,12 +96,26 @@ fun DebatePreparationScreen(
 
             PrepStage.SIDE_ASSIGNMENT -> {
                 delay(2500) // 2.5 seconds side display
-                currentStage = PrepStage.COIN_TOSS
+                currentStage = PrepStage.COIN_CHOICE
+            }
+
+            PrepStage.COIN_CHOICE -> {
+                // wait for player input
             }
 
             PrepStage.COIN_TOSS -> {
                 delay(3000) // 3 seconds coin toss
-                playerStarts = (0..1).random() == 0 // Random coin flip
+                currentStage = PrepStage.COIN_RESULT
+            }
+
+            PrepStage.COIN_RESULT -> {
+                // Generate random coin result: Heads or Tails
+                coinResult = listOf("Heads", "Tails").random()
+
+                // Player wins if their choice matches the coin result
+                playerStarts = (playerChoice == coinResult)
+
+                delay(2500) // 2.5 seconds result display
                 currentStage = PrepStage.COUNTDOWN
             }
 
@@ -138,8 +160,19 @@ fun DebatePreparationScreen(
                 SideAssignmentAnimation(playerName, playerSide, aiName, aiSide, gameMode)
             }
 
+            PrepStage.COIN_CHOICE -> {
+                CoinChoiceAnimation { choice ->
+                    playerChoice = choice
+                    currentStage = PrepStage.COIN_TOSS
+                }
+            }
+
             PrepStage.COIN_TOSS -> {
                 CoinTossAnimation()
+            }
+
+            PrepStage.COIN_RESULT -> {
+                CoinResultAnimation(playerChoice, coinResult, playerStarts)
             }
 
             PrepStage.COUNTDOWN -> {
@@ -633,6 +666,130 @@ fun SideCard(
 }
 
 @Composable
+fun CoinChoiceAnimation(onChoice: (String) -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "🪙 COIN TOSS!",
+            fontSize = 32.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = GoldCoin,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+
+        Text(
+            text = "Choose Your Side",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextWhite,
+            modifier = Modifier.padding(bottom = 48.dp)
+        )
+
+        // Heads or Tails Choice Cards
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Heads Button
+            CoinChoiceCard(
+                label = "HEADS",
+                emoji = "👤",
+                color = CyanPrimary,
+                onClick = { onChoice("Heads") },
+                modifier = Modifier.weight(1f)
+            )
+
+            // Tails Button
+            CoinChoiceCard(
+                label = "TAILS",
+                emoji = "🔢",
+                color = PurpleAccent,
+                onClick = { onChoice("Tails") },
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "Winner starts the debate first!",
+            fontSize = 16.sp,
+            color = TextGray,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+fun CoinChoiceCard(
+    label: String,
+    emoji: String,
+    color: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.9f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "scale"
+    )
+
+    Card(
+        modifier = modifier
+            .height(200.dp)
+            .scale(scale)
+            .shadow(16.dp, RoundedCornerShape(24.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = color.copy(alpha = 0.2f)
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 3.dp,
+            color = color
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // Emoji Icon
+            Text(
+                text = emoji,
+                fontSize = 64.sp,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            // Label
+            Text(
+                text = label,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = color
+            )
+        }
+    }
+}
+
+@Composable
 fun CoinTossAnimation() {
     val infiniteTransition = rememberInfiniteTransition(label = "coin")
 
@@ -661,14 +818,6 @@ fun CoinTossAnimation() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = "🪙 COIN TOSS!",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = GoldCoin,
-            modifier = Modifier.padding(bottom = 48.dp)
-        )
-
         // Spinning coin
         Box(
             modifier = Modifier
@@ -722,6 +871,96 @@ fun CoinTossAnimation() {
             fontSize = 18.sp,
             color = TextGray
         )
+    }
+}
+
+@Composable
+fun CoinResultAnimation(playerChoice: String, coinResult: String, playerStarts: Boolean) {
+    val scale by animateFloatAsState(
+        targetValue = 1.2f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "result_scale"
+    )
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // Result Icon
+        Text(
+            text = if (playerStarts) "🎉" else "😔",
+            fontSize = 80.sp,
+            modifier = Modifier
+                .padding(bottom = 24.dp)
+                .scale(scale)
+        )
+
+        // Winner Announcement
+        Card(
+            modifier = Modifier
+                .padding(24.dp)
+                .fillMaxWidth(0.9f)
+                .shadow(12.dp, RoundedCornerShape(20.dp)),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (playerStarts)
+                    GreenWin.copy(alpha = 0.2f)
+                else
+                    RedLoss.copy(alpha = 0.2f)
+            ),
+            border = androidx.compose.foundation.BorderStroke(
+                width = 3.dp,
+                color = if (playerStarts) GreenWin else RedLoss
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = if (playerStarts) "🎊 YOU WIN! 🎊" else "AI WINS!",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (playerStarts) GreenWin else RedLoss,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "You chose: $playerChoice",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextWhite,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = "Coin landed: $coinResult",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextWhite,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = if (playerStarts)
+                        "✨ You'll start the debate first!"
+                    else
+                        "🤖 AI will start the debate first!",
+                    fontSize = 16.sp,
+                    color = TextGray,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
     }
 }
 

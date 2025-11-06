@@ -143,7 +143,8 @@ fun AppNavigation() {
                     aiSide = if (debateSession.player2Side == DebateSide.FOR) "FOR" else "AGAINST",
                     gameMode = debateSession.gameMode,
                     onPreparationComplete = { playerStarts ->
-                        // Preparation done, move to active debate
+                        // Set who starts first based on coin toss result
+                        debateViewModel.setFirstTurn(playerStarts)
                         currentScreen = Screen.DebateActive
                     }
                 )
