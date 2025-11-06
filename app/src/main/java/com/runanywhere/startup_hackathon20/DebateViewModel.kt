@@ -753,7 +753,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Judge a response based on previous opponent's argument
-     * Checks: counter-argument, logic, evidence, facts, tone, profanity
+     * Uses streaming (which works) and parses simple text format (not JSON)
      */
     private suspend fun judgeResponse(
         currentResponse: String,
@@ -768,23 +768,46 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 speaker = speaker
             )
 
-            // Use streaming API for judging (more reliable)
+            Log.d("DebateViewModel", "⚖️ Judging prompt:\n$judgingPrompt")
+
+            // Use streaming API (which actually works) and parse text output
             val judgeResponse = StringBuilder()
             try {
                 RunAnywhere.generateStream(judgingPrompt).collect { token ->
                     judgeResponse.append(token)
                 }
             } catch (e: Exception) {
-                Log.e("DebateViewModel", " Streaming judging failed, trying regular generate", e)
-                // Fallback to regular generate
-                val fallbackResponse = RunAnywhere.generate(judgingPrompt)
-                judgeResponse.clear()
-                judgeResponse.append(fallbackResponse)
+                Log.e("DebateViewModel", "❌ Streaming judging failed", e)
+                // If streaming also fails, wait and retry
+                if (e.message?.contains("LLM component not initialized") == true) {
+                    Log.w("DebateViewModel", "⚠️ LLM not ready, waiting 2s and retrying...")
+                    delay(2000)
+                    try {
+                        RunAnywhere.generateStream(judgingPrompt).collect { token ->
+                            judgeResponse.append(token)
+                        }
+                    } catch (e2: Exception) {
+                        Log.e("DebateViewModel", "❌ Retry also failed", e2)
+                    }
+                }
             }
 
-            Log.d("DebateViewModel", "Judge response for $speaker: $judgeResponse")
+            val responseText = judgeResponse.toString()
+            Log.d("DebateViewModel", "Judge response for $speaker: $responseText")
 
-            parseJudgeScore(judgeResponse.toString(), speaker)
+            if (responseText.isBlank()) {
+                Log.w("DebateViewModel", "⚠️ Empty judge response, using default score")
+                return TurnScore(
+                    speaker = speaker,
+                    score = 5,
+                    reasoning = "Unable to evaluate due to technical issue",
+                    hasProfanity = false,
+                    factCheck = "Not evaluated"
+                )
+            }
+
+            // Parse the simple text format
+            parseJudgeScoreFromText(responseText, speaker)
 
         } catch (e: Exception) {
             Log.e("DebateViewModel", "Error judging response", e)
@@ -800,80 +823,47 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Build judging prompt for turn-based evaluation
+     * Build judging prompt for simple text output (not JSON)
+     * Format: Score: X/10, Reasoning: ..., etc.
      */
     private fun buildJudgingPromptTurnBased(
         currentResponse: String,
         previousOpponentResponse: String,
         speaker: String
     ): String {
+        val opponentContext = if (previousOpponentResponse.isNotEmpty()) {
+            "PREVIOUS OPPONENT SAID: \"$previousOpponentResponse\"\n"
+        } else {
+            "(This is the opening statement)\n"
+        }
+        
         return """
-You are a professional debate judge. Score this response fairly and objectively.
+You are judging a debate response. Evaluate and score it.
 
-${
-            if (previousOpponentResponse.isNotEmpty()) {
-                "OPPONENT'S PREVIOUS ARGUMENT:\n\"$previousOpponentResponse\"\n"
-            } else {
-                "This is an opening statement (no previous opponent argument).\n"
-            }
-        }
+$opponentContext
+$speaker RESPONDS: "$currentResponse"
 
-$speaker'S CURRENT RESPONSE:
-"$currentResponse"
+Rate this response from 0 to 10 based on:
+- Logic and reasoning
+- Evidence and examples  
+- Counter-arguments
+- Tone and respect
+- Accuracy of claims
 
-Score this response (0-10) based on:
-1. **Counter-Argument**: Did they address the opponent's point effectively?
-2. **Logic & Structure**: Is the argument well-reasoned and clear?
-3. **Evidence & Facts**: Did they use examples, data, or credible sources?
-4. **Fact Accuracy**: Are their claims plausible and reasonable?
-5. **Tone & Respect**: Is the language professional and respectful?
-6. **Language**: Any profanity, insults, or inappropriate content?
+Give your evaluation in this EXACT format:
+Score: [number]/10
+Reasoning: [brief explanation in one sentence]
+Profanity: [yes or no]
+Facts: [are claims reasonable]
 
-Respond in EXACT JSON format:
-{
-  "score": 8,
-  "reasoning": "Strong counter-argument with good evidence, but tone could be better",
-  "hasProfanity": false,
-  "factCheck": "Claims seem plausible"
-}
+Example:
+Score: 7/10
+Reasoning: Good logical argument with some evidence but could be stronger
+Profanity: no
+Facts: Claims seem reasonable
 
-Generate ONLY the JSON, no other text.
+Now evaluate the response above:
 """.trimIndent()
-    }
-
-    /**
-     * Parse judge's JSON response into TurnScore
-     */
-    private fun parseJudgeScore(response: String, speaker: String): TurnScore {
-        return try {
-            // Extract JSON from response
-            val jsonStart = response.indexOf("{")
-            val jsonEnd = response.lastIndexOf("}") + 1
-
-            if (jsonStart == -1 || jsonEnd <= jsonStart) {
-                throw Exception("No valid JSON in response")
-            }
-
-            val jsonString = response.substring(jsonStart, jsonEnd)
-            val json = JSONObject(jsonString)
-
-            TurnScore(
-                speaker = speaker,
-                score = json.optInt("score", 5),
-                reasoning = json.optString("reasoning", "No feedback provided"),
-                hasProfanity = json.optBoolean("hasProfanity", false),
-                factCheck = json.optString("factCheck", "Not evaluated")
-            )
-        } catch (e: Exception) {
-            Log.e("DebateViewModel", "Error parsing judge score", e)
-            TurnScore(
-                speaker = speaker,
-                score = 5,
-                reasoning = "Unable to parse score",
-                hasProfanity = false,
-                factCheck = "Not evaluated"
-            )
-        }
     }
 
     /**
