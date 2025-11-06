@@ -185,6 +185,7 @@ fun AppNavigation() {
                         lackingPoints = feedbackParts.second,
                         topic = debateSession.topic.title,
                         gameMode = debateSession.gameMode,
+                        comprehensiveFeedback = scores.detailedAnalysis, // Pass full AI feedback
                         onPlayAgain = {
                             // Play again with same mode
                             debateViewModel.startDebate(debateSession.gameMode)

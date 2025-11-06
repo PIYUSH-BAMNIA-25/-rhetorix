@@ -58,10 +58,12 @@ fun DebateResultsScreen(
     lackingPoints: List<String>,
     topic: String,
     gameMode: GameMode,
+    comprehensiveFeedback: String = "",
     onPlayAgain: () -> Unit,
     onBackToMenu: () -> Unit
 ) {
     var showContent by remember { mutableStateOf(false) }
+    var showDetailedFeedback by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         delay(300)
@@ -148,10 +150,113 @@ fun DebateResultsScreen(
 
                     Spacer(modifier = Modifier.height(40.dp))
 
-                    // 6. ACTION BUTTONS
+                    // 6. COMPREHENSIVE FEEDBACK (NEW!)
+                    if (comprehensiveFeedback.isNotBlank()) {
+                        ComprehensiveFeedbackSection(
+                            feedback = comprehensiveFeedback,
+                            expanded = showDetailedFeedback,
+                            onToggle = { showDetailedFeedback = !showDetailedFeedback }
+                        )
+
+                        Spacer(modifier = Modifier.height(40.dp))
+                    }
+
+                    // 7. ACTION BUTTONS
                     ActionButtonsSection(onPlayAgain, onBackToMenu)
 
                     Spacer(modifier = Modifier.height(32.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ComprehensiveFeedbackSection(
+    feedback: String,
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.Start
+    ) {
+        // Section Header with toggle
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = PurpleAccent.copy(alpha = 0.2f)
+            ),
+            onClick = onToggle
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountCircle,
+                        contentDescription = "Coach",
+                        tint = PurpleAccent,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Text(
+                        text = "🎯 COACH'S ANALYSIS",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = PurpleAccent
+                    )
+                }
+
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = PurpleAccent,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Expandable feedback content
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(tween(400)) + expandVertically(tween(400)),
+            exit = fadeOut(tween(300)) + shrinkVertically(tween(300))
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = DarkCard.copy(alpha = 0.6f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                ) {
+                    Text(
+                        text = feedback,
+                        fontSize = 14.sp,
+                        color = TextWhite,
+                        lineHeight = 22.sp,
+                        style = androidx.compose.ui.text.TextStyle(
+                            letterSpacing = 0.3.sp
+                        )
+                    )
                 }
             }
         }
@@ -756,6 +861,7 @@ fun DebateResultsScreenPreview() {
         ),
         topic = "Social Media Does More Harm Than Good",
         gameMode = GameMode.AI_INTERMEDIATE,
+        comprehensiveFeedback = "Behavior: Good\nTurn Analysis: Strong\nCommunication Style: Clear\nStrategic Analysis: Excellent\nAreas for Improvement: Counter Arguments",
         onPlayAgain = {},
         onBackToMenu = {}
     )

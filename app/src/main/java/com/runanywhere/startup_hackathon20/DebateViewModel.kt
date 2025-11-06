@@ -596,8 +596,6 @@ Your SHORT response (3-4 lines only):
 """.trimIndent()
     }
 
-    // ... existing code continues below ...
-
     // === DEBATE ENDING ===
     private suspend fun endDebate() {
         val session = _currentSession.value ?: return
@@ -605,22 +603,33 @@ Your SHORT response (3-4 lines only):
         _currentSession.value = session.copy(status = DebateStatus.JUDGING)
         _statusMessage.value = "Time's up! AI is judging the debate..."
         _currentScreen.value = DebateScreen.DEBATE_RESULTS
-        
-        // Generate scores
+
+        // Generate comprehensive scores and feedback
         generateDebateScores(session)
     }
 
     private suspend fun generateDebateScores(session: DebateSession) {
         try {
+            // First: Basic scoring
+            _statusMessage.value = "Analyzing arguments..."
             val judgingPrompt = buildJudgingPrompt(session)
             val judgingResponse = RunAnywhere.generate(judgingPrompt)
             
             // Parse AI response and create scores
             val scores = parseJudgingResponse(judgingResponse, session)
-            
+
+            // Second: Generate comprehensive feedback
+            _statusMessage.value = "Generating detailed feedback..."
+            val comprehensiveFeedback = generateComprehensiveFeedback(session, scores)
+
+            // Update scores with comprehensive feedback
+            val finalScores = scores.copy(
+                detailedAnalysis = comprehensiveFeedback
+            )
+
             _currentSession.value = session.copy(
                 status = DebateStatus.FINISHED,
-                scores = scores
+                scores = finalScores
             )
             
             val winner = if (scores.player1Score.totalScore > scores.player2Score.totalScore) 
@@ -629,11 +638,134 @@ Your SHORT response (3-4 lines only):
             _statusMessage.value = "Debate complete! Winner: $winner"
 
             // Save debate results to database
-            saveDebateResults(session, scores)
+            saveDebateResults(session, finalScores)
 
         } catch (e: Exception) {
             _statusMessage.value = "Error judging debate: ${e.message}"
+            Log.e("DebateViewModel", "Error generating scores", e)
         }
+    }
+
+    /**
+     * FEEDBACK AI: Comprehensive analysis of entire debate
+     * Analyzes: behavior, strengths, weaknesses, where they shined, where they lacked
+     */
+    private suspend fun generateComprehensiveFeedback(
+        session: DebateSession,
+        scores: DebateScores
+    ): String {
+        try {
+            val feedbackPrompt = buildFeedbackAIPrompt(session, scores)
+            val feedback = RunAnywhere.generate(feedbackPrompt)
+
+            return feedback
+        } catch (e: Exception) {
+            Log.e("DebateViewModel", "Error generating feedback", e)
+            return "Unable to generate detailed feedback at this time."
+        }
+    }
+
+    /**
+     * Build comprehensive feedback prompt
+     */
+    private fun buildFeedbackAIPrompt(session: DebateSession, scores: DebateScores): String {
+        val topic = session.topic
+        val player1Side = if (session.player1Side == DebateSide.FOR) "FOR" else "AGAINST"
+        val player2Side = if (session.player2Side == DebateSide.FOR) "FOR" else "AGAINST"
+
+        // Get full debate transcript
+        val fullTranscript = session.messages.joinToString("\n\n") { msg ->
+            val side = if (msg.playerId == session.player1.id) player1Side else player2Side
+            "**${msg.playerName}** (arguing $side) - Turn ${msg.turnNumber}:\n${msg.message}"
+        }
+
+        // Player's scores
+        val playerScore = scores.player1Score
+        val aiScore = scores.player2Score
+
+        return """
+You are an expert debate coach analyzing a complete debate performance. Provide comprehensive, constructive feedback.
+
+=== DEBATE INFORMATION ===
+Topic: "${topic.title}"
+Description: ${topic.description}
+
+${session.player1.name}'s Side: $player1Side
+AI Opponent's Side: $player2Side
+
+Time Duration: ${(600000 - session.timeRemaining) / 1000 / 60} minutes
+Total Exchanges: ${session.messages.size} messages
+
+=== PERFORMANCE SCORES ===
+${session.player1.name}:
+- Logic & Reasoning: ${playerScore.logicReasoning}/10
+- Evidence Quality: ${playerScore.evidenceQuality}/10
+- Tone & Respect: ${playerScore.toneRespect}/10
+- Counter Arguments: ${playerScore.counterArguments}/10
+- Factual Accuracy: ${playerScore.factualAccuracy}/10
+TOTAL: ${playerScore.totalScore}/50
+
+AI Opponent:
+- Logic & Reasoning: ${aiScore.logicReasoning}/10
+- Evidence Quality: ${aiScore.evidenceQuality}/10
+- Tone & Respect: ${aiScore.toneRespect}/10
+- Counter Arguments: ${aiScore.counterArguments}/10
+- Factual Accuracy: ${aiScore.factualAccuracy}/10
+TOTAL: ${aiScore.totalScore}/50
+
+Winner: ${if (scores.winner == session.player1.id) session.player1.name else "AI Opponent"}
+
+=== FULL DEBATE TRANSCRIPT ===
+$fullTranscript
+
+=== YOUR TASK ===
+Provide a comprehensive analysis covering:
+
+1. **OVERALL BEHAVIOR** (2-3 sentences)
+   - How did ${session.player1.name} approach the debate?
+   - What was their debating style?
+   - Were they aggressive, defensive, or balanced?
+
+2. **WHERE THEY SHINED** ⭐ (3-4 specific examples)
+   - What were their strongest moments?
+   - Which arguments were most effective?
+   - What techniques worked well?
+
+3. **WHERE THEY LACKED** ⚠️ (3-4 specific areas)
+   - What weaknesses were evident?
+   - Which arguments were weak or missed?
+   - What could be improved?
+
+4. **SPECIFIC TURN ANALYSIS** (Pick 2-3 key turns)
+   - Turn X: Why this was good/bad
+   - What they did right/wrong
+   - How they could improve
+
+5. **COMMUNICATION STYLE**
+   - Clarity of expression
+   - Use of evidence
+   - Logical structure
+   - Tone and respect
+
+6. **STRATEGIC ANALYSIS**
+   - Did they address opponent's points effectively?
+   - Did they stay on topic?
+   - Did they control the narrative?
+
+7. **AREAS FOR IMPROVEMENT** (Actionable advice)
+   - Top 3 things to work on
+   - Specific recommendations
+   - How to practice
+
+8. **FINAL VERDICT & ENCOURAGEMENT**
+   - Overall assessment
+   - Growth potential
+   - Motivational closing
+
+FORMAT: Write in a friendly, coaching tone. Be honest but encouraging. Use specific examples from the transcript.
+
+Generate your comprehensive feedback:
+""".trimIndent()
     }
 
     private fun buildJudgingPrompt(session: DebateSession): String {
@@ -656,11 +788,11 @@ Your SHORT response (3-4 lines only):
             $conversation
             
             Score each participant (1-10) on:
-            1. Logic & Reasoning: Clear, logical arguments
-            2. Evidence Quality: Use of facts and examples
-            3. Tone & Respect: Professional, respectful communication
-            4. Counter Arguments: Addressing opponent's points effectively
-            5. Factual Accuracy: Truthfulness of claims
+            1. **Logic & Reasoning**: Clear, logical arguments
+            2. **Evidence Quality**: Use of facts and examples
+            3. **Tone & Respect**: Professional, respectful communication
+            4. **Counter Arguments**: Addressing opponent's points effectively
+            5. **Factual Accuracy**: Truthfulness of claims
             
             Format your response as:
             PLAYER1_LOGIC: [score]
