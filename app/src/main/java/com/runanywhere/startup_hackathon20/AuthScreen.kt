@@ -1,10 +1,16 @@
 package com.runanywhere.startup_hackathon20
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -18,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -34,22 +41,26 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.runanywhere.startup_hackathon20.database.UserEntity
 import com.runanywhere.startup_hackathon20.AuthState
 import com.runanywhere.startup_hackathon20.AuthViewModel
+import com.runanywhere.startup_hackathon20.UserData
 import kotlin.math.cos
 import kotlin.math.sin
 
-// Color Palette - Dark theme with attractive colors
-private val CyanPrimary = Color(0xFF00D9FF)
-private val CyanLight = Color(0xFF5FEDFF)
-private val PurpleAccent = Color(0xFF9D4EDD)
-private val DarkBackground = Color(0xFF0A0A0F)
-private val DarkSurface = Color(0xFF1A1A2E)
-private val DarkCard = Color(0xFF16213E)
-private val TextWhite = Color(0xFFFFFFFF)
-private val TextGray = Color(0xFFB0B0B0)
-private val ErrorRed = Color(0xFFFF6B6B)
+// Elegant Dark Theme Color Palette with Golden Accents
+private val DeepBlack = Color(0xFF0D0D12)
+private val RichBlack = Color(0xFF16161D)
+private val DarkSlate = Color(0xFF1E1E28)
+private val GoldPrimary = Color(0xFFD4AF37)
+private val GoldLight = Color(0xFFF4E6B8)
+private val GoldDark = Color(0xFFB8963C)
+private val AmberAccent = Color(0xFFFFB84D)
+private val CopperShine = Color(0xFFE8985E)
+private val SilverGray = Color(0xFF9BA4B5)
+private val PearlWhite = Color(0xFFF5F5F7)
+private val SoftWhite = Color(0xFFE8E8ED)
+private val ErrorRose = Color(0xFFFF6B6B)
+private val SuccessGreen = Color(0xFF51CF66)
 
 enum class AuthPage {
     MAIN, LOGIN, SIGNUP
@@ -57,7 +68,7 @@ enum class AuthPage {
 
 @Composable
 fun AuthScreen(
-    onAuthSuccess: (UserEntity) -> Unit,
+    onAuthSuccess: (UserData) -> Unit,
     viewModel: AuthViewModel = viewModel()
 ) {
     var currentPage by remember { mutableStateOf(AuthPage.MAIN) }
@@ -70,33 +81,39 @@ fun AuthScreen(
         }
     }
 
-    when (currentPage) {
-        AuthPage.MAIN -> MainAuthScreen(
-            onNavigateToLogin = { currentPage = AuthPage.LOGIN },
-            onNavigateToSignUp = { currentPage = AuthPage.SIGNUP }
-        )
-        AuthPage.LOGIN -> LoginScreen(
-            onNavigateToSignUp = { 
-                viewModel.resetState()
-                currentPage = AuthPage.SIGNUP 
-            },
-            onNavigateBack = { currentPage = AuthPage.MAIN },
-            onLogin = { email, password ->
-                viewModel.login(email, password)
-            },
-            authState = authState
-        )
-        AuthPage.SIGNUP -> SignUpScreen(
-            onNavigateToLogin = { 
-                viewModel.resetState()
-                currentPage = AuthPage.LOGIN 
-            },
-            onNavigateBack = { currentPage = AuthPage.MAIN },
-            onSignUp = { name, email, password, dob ->
-                viewModel.signUp(name, email, password, dob)
-            },
-            authState = authState
-        )
+    AnimatedVisibility(
+        visible = true,
+        enter = fadeIn(animationSpec = tween(800)),
+        exit = fadeOut(animationSpec = tween(800))
+    ) {
+        when (currentPage) {
+            AuthPage.MAIN -> MainAuthScreen(
+                onNavigateToLogin = { currentPage = AuthPage.LOGIN },
+                onNavigateToSignUp = { currentPage = AuthPage.SIGNUP }
+            )
+            AuthPage.LOGIN -> LoginScreen(
+                onNavigateToSignUp = { 
+                    viewModel.resetState()
+                    currentPage = AuthPage.SIGNUP 
+                },
+                onNavigateBack = { currentPage = AuthPage.MAIN },
+                onLogin = { email, password ->
+                    viewModel.login(email, password)
+                },
+                authState = authState
+            )
+            AuthPage.SIGNUP -> SignUpScreen(
+                onNavigateToLogin = { 
+                    viewModel.resetState()
+                    currentPage = AuthPage.LOGIN 
+                },
+                onNavigateBack = { currentPage = AuthPage.MAIN },
+                onSignUp = { username, firstName, lastName, email, password, dob ->
+                    viewModel.signUp(username, firstName, lastName, email, password, dob)
+                },
+                authState = authState
+            )
+        }
     }
 }
 
@@ -109,82 +126,46 @@ fun MainAuthScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        DarkBackground,
-                        DarkSurface,
-                        DarkBackground
-                    )
-                )
-            )
+            .background(DeepBlack)
     ) {
-        // Animated background particles
-        AnimatedBackgroundParticles()
+        // Animated luxury background with floating particles
+        AnimatedLuxuryBackground()
         
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(horizontal = 32.dp, vertical = 48.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
+            Spacer(modifier = Modifier.weight(0.382f))
+            
             // Logo Section - Golden Ratio: 1.618
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.weight(1.618f)
             ) {
-                Spacer(modifier = Modifier.weight(0.5f))
+                // Animated Logo with golden glow
+                AnimatedLogo()
                 
-                // R Logo with glow effect
-                Box(
-                    modifier = Modifier.size(120.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // Glow effect
-                    Canvas(modifier = Modifier.size(130.dp)) {
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    CyanPrimary.copy(alpha = 0.3f),
-                                    Color.Transparent
-                                )
-                            ),
-                            radius = size.width / 2
-                        )
-                    }
-                    
-                    Text(
-                        text = "R",
-                        fontSize = 88.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = CyanPrimary,
-                        style = MaterialTheme.typography.displayLarge
-                    )
-                }
+                Spacer(modifier = Modifier.height(32.dp))
                 
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                // App Name
-                Text(
-                    text = "Retrorix",
-                    fontSize = 48.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    letterSpacing = 2.sp
+                // App Name with shimmer effect
+                ShimmerText(
+                    text = "RETRORIX",
+                    fontSize = 52.sp
                 )
                 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 
                 // Tagline
                 Text(
                     text = "Master the Art of Debate",
                     fontSize = 16.sp,
-                    color = TextGray,
-                    letterSpacing = 1.sp
+                    color = SilverGray,
+                    letterSpacing = 2.sp,
+                    fontWeight = FontWeight.Light
                 )
-                
-                Spacer(modifier = Modifier.weight(0.5f))
             }
             
             // Buttons Section - Golden Ratio: 1
@@ -194,52 +175,21 @@ fun MainAuthScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                // Login Button
-                Button(
+                // Login Button with golden gradient
+                GoldenButton(
+                    text = "LOG IN",
                     onClick = onNavigateToLogin,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(62.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = CyanPrimary,
-                        contentColor = DarkBackground
-                    ),
-                    shape = RoundedCornerShape(31.dp),
-                    elevation = ButtonDefaults.buttonElevation(
-                        defaultElevation = 8.dp,
-                        pressedElevation = 12.dp
-                    )
-                ) {
-                    Text(
-                        text = "Log IN",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
-                }
+                    modifier = Modifier.fillMaxWidth()
+                )
                 
                 Spacer(modifier = Modifier.height(20.dp))
                 
-                // Sign Up Button
-                OutlinedButton(
+                // Sign Up Button - outlined style
+                OutlinedGoldenButton(
+                    text = "SIGN UP",
                     onClick = onNavigateToSignUp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(62.dp),
-                    border = BorderStroke(2.dp, CyanPrimary.copy(alpha = 0.5f)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = DarkCard.copy(alpha = 0.5f),
-                        contentColor = TextWhite
-                    ),
-                    shape = RoundedCornerShape(31.dp)
-                ) {
-                    Text(
-                        text = "Sign UP",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
-                }
+                    modifier = Modifier.fillMaxWidth()
+                )
                 
                 Spacer(modifier = Modifier.height(40.dp))
             }
@@ -258,25 +208,18 @@ fun LoginScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
-    var emailFocused by remember { mutableStateOf(false) }
-    var passwordFocused by remember { mutableStateOf(false) }
     
     val isLoading = authState is AuthState.Loading
+    val isEmailValid = remember(email) {
+        email.isEmpty() || android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+    }
     
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        DarkBackground,
-                        DarkSurface,
-                        DarkBackground
-                    )
-                )
-            )
+            .background(DeepBlack)
     ) {
-        AnimatedBackgroundParticles()
+        AnimatedLuxuryBackground()
         
         Column(
             modifier = Modifier
@@ -285,239 +228,133 @@ fun LoginScreen(
                 .padding(horizontal = 32.dp, vertical = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header - Logo and Name
+            // Back Button
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 32.dp)
-            ) {
-                Text(
-                    text = "R",
-                    fontSize = 36.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = CyanPrimary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Retrorix",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite
-                )
-            }
-            
-            // Profile Circle Avatar (Instagram style)
-            Box(
                 modifier = Modifier
-                    .size(140.dp)
-                    .padding(8.dp),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp),
+                horizontalArrangement = Arrangement.Start
             ) {
-                // Gradient border ring
-                Canvas(modifier = Modifier.size(140.dp)) {
-                    drawCircle(
-                        brush = Brush.linearGradient(
-                            colors = listOf(CyanPrimary, PurpleAccent, CyanLight)
-                        ),
-                        radius = size.width / 2,
-                        style = Stroke(width = 4.dp.toPx())
-                    )
-                }
-                
-                // Avatar Circle
-                Box(
+                IconButton(
+                    onClick = onNavigateBack,
                     modifier = Modifier
-                        .size(120.dp)
-                        .clip(CircleShape)
+                        .size(48.dp)
                         .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    CyanPrimary.copy(alpha = 0.3f),
-                                    PurpleAccent.copy(alpha = 0.3f)
-                                )
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
+                            color = DarkSlate.copy(alpha = 0.5f),
+                            shape = CircleShape
+                        )
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "Profile",
-                        tint = TextWhite,
-                        modifier = Modifier.size(60.dp)
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = GoldPrimary
                     )
                 }
             }
             
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+            
+            // Profile Circle Avatar with elegant animation
+            AnimatedProfileAvatar()
+            
+            Spacer(modifier = Modifier.height(32.dp))
             
             // Welcome Text
             Text(
-                text = "Welcome Back, Player!",
-                fontSize = 26.sp,
+                text = "Welcome Back",
+                fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
-                color = TextWhite,
+                color = PearlWhite,
                 textAlign = TextAlign.Center
+            )
+            
+            Text(
+                text = "Sign in to continue your journey",
+                fontSize = 15.sp,
+                color = SilverGray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            
+            Spacer(modifier = Modifier.height(48.dp))
+            
+            // Error Message
+            AnimatedVisibility(
+                visible = authState is AuthState.Error,
+                enter = slideInVertically(animationSpec = tween(300)) + fadeIn(
+                    animationSpec = tween(
+                        300
+                    )
+                ),
+                exit = slideOutVertically(animationSpec = tween(300)) + fadeOut(
+                    animationSpec = tween(
+                        300
+                    )
+                )
+            ) {
+                ErrorCard(message = (authState as? AuthState.Error)?.message ?: "")
+            }
+            
+            // Email Field
+            ElegantTextField(
+                value = email,
+                onValueChange = { email = it },
+                placeholder = "Email Address",
+                leadingIcon = Icons.Default.Email,
+                keyboardType = KeyboardType.Email,
+                enabled = !isLoading,
+                isError = !isEmailValid,
+                errorMessage = if (!isEmailValid) "Invalid email format" else null
+            )
+            
+            Spacer(modifier = Modifier.height(20.dp))
+            
+            // Password Field
+            ElegantTextField(
+                value = password,
+                onValueChange = { password = it },
+                placeholder = "Password",
+                leadingIcon = Icons.Default.Lock,
+                isPassword = true,
+                passwordVisible = passwordVisible,
+                onTogglePasswordVisibility = { passwordVisible = !passwordVisible },
+                enabled = !isLoading
             )
             
             Spacer(modifier = Modifier.height(40.dp))
             
-            // Error Message
-            if (authState is AuthState.Error) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = ErrorRed.copy(alpha = 0.15f)
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = (authState as AuthState.Error).message,
-                        color = ErrorRed,
-                        modifier = Modifier.padding(16.dp),
-                        fontSize = 14.sp
-                    )
-                }
-            }
-            
-            // Email/Username Field
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 20.dp),
-                placeholder = { 
-                    Text(
-                        "Username or Email", 
-                        color = TextGray,
-                        fontSize = 16.sp
-                    ) 
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "User",
-                        tint = if (emailFocused) CyanPrimary else TextGray
-                    )
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextWhite,
-                    unfocusedTextColor = TextWhite,
-                    focusedBorderColor = CyanPrimary,
-                    unfocusedBorderColor = TextGray.copy(alpha = 0.3f),
-                    focusedContainerColor = DarkCard.copy(alpha = 0.5f),
-                    unfocusedContainerColor = DarkCard.copy(alpha = 0.3f)
-                ),
-                shape = RoundedCornerShape(16.dp),
-                singleLine = true,
-                enabled = !isLoading
-            )
-            
-            // Password Field
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 32.dp),
-                placeholder = { 
-                    Text(
-                        "Password", 
-                        color = TextGray,
-                        fontSize = 16.sp
-                    ) 
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Password",
-                        tint = if (passwordFocused) CyanPrimary else TextGray
-                    )
-                },
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            imageVector = if (passwordVisible) Icons.Default.Info else Icons.Default.Lock,
-                            contentDescription = "Toggle password",
-                            tint = TextGray
-                        )
-                    }
-                },
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextWhite,
-                    unfocusedTextColor = TextWhite,
-                    focusedBorderColor = CyanPrimary,
-                    unfocusedBorderColor = TextGray.copy(alpha = 0.3f),
-                    focusedContainerColor = DarkCard.copy(alpha = 0.5f),
-                    unfocusedContainerColor = DarkCard.copy(alpha = 0.3f)
-                ),
-                shape = RoundedCornerShape(16.dp),
-                singleLine = true,
-                enabled = !isLoading
-            )
-            
             // Sign In Button
-            Button(
+            GoldenButton(
+                text = if (isLoading) "SIGNING IN..." else "SIGN IN",
                 onClick = {
-                    if (email.isNotBlank() && password.isNotBlank()) {
+                    if (email.isNotBlank() && password.isNotBlank() && isEmailValid) {
                         onLogin(email, password)
                     }
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp),
-                enabled = email.isNotBlank() && password.isNotBlank() && !isLoading,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = CyanPrimary,
-                    contentColor = DarkBackground,
-                    disabledContainerColor = CyanPrimary.copy(alpha = 0.3f)
-                ),
-                shape = RoundedCornerShape(29.dp),
-                elevation = ButtonDefaults.buttonElevation(
-                    defaultElevation = 8.dp
-                )
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = DarkBackground,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Text(
-                        "Sign In",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
-                }
-            }
+                enabled = email.isNotBlank() && password.isNotBlank() && !isLoading && isEmailValid,
+                loading = isLoading,
+                modifier = Modifier.fillMaxWidth()
+            )
             
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(32.dp))
             
-            // Don't have account
+            // Sign Up Link
             Row(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "Don't have an account? ",
-                    color = TextGray,
+                    color = SilverGray,
                     fontSize = 15.sp
                 )
-                TextButton(
-                    onClick = onNavigateToSignUp,
-                    enabled = !isLoading
-                ) {
-                    Text(
-                        text = "Sign Up",
-                        color = CyanPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(
+                    text = "Sign Up",
+                    color = GoldPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable(enabled = !isLoading) { onNavigateToSignUp() }
+                )
             }
         }
     }
@@ -528,10 +365,12 @@ fun LoginScreen(
 fun SignUpScreen(
     onNavigateToLogin: () -> Unit,
     onNavigateBack: () -> Unit,
-    onSignUp: (String, String, String, String) -> Unit,
+    onSignUp: (String, String, String, String, String, String) -> Unit,
     authState: AuthState
 ) {
     var username by remember { mutableStateOf("") }
+    var firstName by remember { mutableStateOf("") }
+    var lastName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var dateOfBirth by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -540,25 +379,22 @@ fun SignUpScreen(
     var confirmPasswordVisible by remember { mutableStateOf(false) }
     
     val isLoading = authState is AuthState.Loading
-    val passwordsMatch = password == confirmPassword
-    val allFieldsFilled = username.isNotBlank() && email.isNotBlank() && 
-                         dateOfBirth.isNotBlank() && password.isNotBlank() && 
-                         confirmPassword.isNotBlank()
-    
+    val passwordsMatch = password == confirmPassword || confirmPassword.isEmpty()
+    val isEmailValid = remember(email) {
+        email.isEmpty() || android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+    }
+    val isPasswordValid = password.length >= 6 || password.isEmpty()
+    val allFieldsFilled = username.isNotBlank() && firstName.isNotBlank() &&
+            lastName.isNotBlank() && email.isNotBlank() &&
+            dateOfBirth.isNotBlank() && password.isNotBlank() &&
+            confirmPassword.isNotBlank()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        DarkBackground,
-                        DarkSurface,
-                        DarkBackground
-                    )
-                )
-            )
+            .background(DeepBlack)
     ) {
-        AnimatedBackgroundParticles()
+        AnimatedLuxuryBackground()
         
         Column(
             modifier = Modifier
@@ -567,409 +403,658 @@ fun SignUpScreen(
                 .padding(horizontal = 32.dp, vertical = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header - Logo and Name
+            // Back Button
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 24.dp)
-            ) {
-                Text(
-                    text = "R",
-                    fontSize = 36.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = CyanPrimary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Retrorix",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite
-                )
-            }
-            
-            // Profile Circle Avatar (Instagram style)
-            Box(
                 modifier = Modifier
-                    .size(120.dp)
-                    .padding(6.dp),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.Start
             ) {
-                // Gradient border ring
-                Canvas(modifier = Modifier.size(120.dp)) {
-                    drawCircle(
-                        brush = Brush.linearGradient(
-                            colors = listOf(CyanPrimary, PurpleAccent, CyanLight)
-                        ),
-                        radius = size.width / 2,
-                        style = Stroke(width = 3.dp.toPx())
-                    )
-                }
-                
-                // Avatar Circle
-                Box(
+                IconButton(
+                    onClick = onNavigateBack,
                     modifier = Modifier
-                        .size(105.dp)
-                        .clip(CircleShape)
+                        .size(48.dp)
                         .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    CyanPrimary.copy(alpha = 0.3f),
-                                    PurpleAccent.copy(alpha = 0.3f)
-                                )
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
+                            color = DarkSlate.copy(alpha = 0.5f),
+                            shape = CircleShape
+                        )
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "Profile",
-                        tint = TextWhite,
-                        modifier = Modifier.size(52.dp)
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = GoldPrimary
                     )
                 }
             }
             
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Profile Avatar
+            AnimatedProfileAvatar(size = 100.dp)
+            
+            Spacer(modifier = Modifier.height(24.dp))
             
             // Welcome Text
             Text(
-                text = "Start Your Journey Today!",
-                fontSize = 24.sp,
+                text = "Create Account",
+                fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
-                color = TextWhite,
+                color = PearlWhite,
                 textAlign = TextAlign.Center
             )
             
-            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = "Join the debate arena today",
+                fontSize = 15.sp,
+                color = SilverGray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            
+            Spacer(modifier = Modifier.height(36.dp))
             
             // Error Message
-            if (authState is AuthState.Error) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = ErrorRed.copy(alpha = 0.15f)
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = (authState as AuthState.Error).message,
-                        color = ErrorRed,
-                        modifier = Modifier.padding(16.dp),
-                        fontSize = 14.sp
+            AnimatedVisibility(
+                visible = authState is AuthState.Error,
+                enter = slideInVertically(animationSpec = tween(300)) + fadeIn(
+                    animationSpec = tween(
+                        300
                     )
-                }
+                ),
+                exit = slideOutVertically(animationSpec = tween(300)) + fadeOut(
+                    animationSpec = tween(
+                        300
+                    )
+                )
+            ) {
+                ErrorCard(message = (authState as? AuthState.Error)?.message ?: "")
             }
             
             // Username Field
-            OutlinedTextField(
+            ElegantTextField(
                 value = username,
                 onValueChange = { username = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                placeholder = { 
-                    Text(
-                        "Username", 
-                        color = TextGray,
-                        fontSize = 15.sp
-                    ) 
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "Username",
-                        tint = TextGray
-                    )
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextWhite,
-                    unfocusedTextColor = TextWhite,
-                    focusedBorderColor = CyanPrimary,
-                    unfocusedBorderColor = TextGray.copy(alpha = 0.3f),
-                    focusedContainerColor = DarkCard.copy(alpha = 0.5f),
-                    unfocusedContainerColor = DarkCard.copy(alpha = 0.3f)
-                ),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true,
+                placeholder = "Username",
+                leadingIcon = Icons.Default.Person,
                 enabled = !isLoading
             )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // First Name & Last Name in a Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                ElegantTextField(
+                    value = firstName,
+                    onValueChange = { firstName = it },
+                    placeholder = "First Name",
+                    leadingIcon = Icons.Default.Person,
+                    enabled = !isLoading,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                ElegantTextField(
+                    value = lastName,
+                    onValueChange = { lastName = it },
+                    placeholder = "Last Name",
+                    leadingIcon = Icons.Default.Person,
+                    enabled = !isLoading,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
             
             // Email Field
-            OutlinedTextField(
+            ElegantTextField(
                 value = email,
                 onValueChange = { email = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                placeholder = { 
-                    Text(
-                        "Email", 
-                        color = TextGray,
-                        fontSize = 15.sp
-                    ) 
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Email,
-                        contentDescription = "Email",
-                        tint = TextGray
-                    )
-                },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextWhite,
-                    unfocusedTextColor = TextWhite,
-                    focusedBorderColor = CyanPrimary,
-                    unfocusedBorderColor = TextGray.copy(alpha = 0.3f),
-                    focusedContainerColor = DarkCard.copy(alpha = 0.5f),
-                    unfocusedContainerColor = DarkCard.copy(alpha = 0.3f)
-                ),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true,
-                enabled = !isLoading
+                placeholder = "Email Address",
+                leadingIcon = Icons.Default.Email,
+                keyboardType = KeyboardType.Email,
+                enabled = !isLoading,
+                isError = !isEmailValid,
+                errorMessage = if (!isEmailValid) "Invalid email format" else null
             )
+            
+            Spacer(modifier = Modifier.height(16.dp))
             
             // Date of Birth Field
-            OutlinedTextField(
+            ElegantTextField(
                 value = dateOfBirth,
                 onValueChange = { dateOfBirth = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                placeholder = { 
-                    Text(
-                        "Date of Birth (DOB)", 
-                        color = TextGray,
-                        fontSize = 15.sp
-                    ) 
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.DateRange,
-                        contentDescription = "DOB",
-                        tint = TextGray
-                    )
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextWhite,
-                    unfocusedTextColor = TextWhite,
-                    focusedBorderColor = CyanPrimary,
-                    unfocusedBorderColor = TextGray.copy(alpha = 0.3f),
-                    focusedContainerColor = DarkCard.copy(alpha = 0.5f),
-                    unfocusedContainerColor = DarkCard.copy(alpha = 0.3f)
-                ),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true,
+                placeholder = "Date of Birth (YYYY-MM-DD)",
+                leadingIcon = Icons.Default.DateRange,
                 enabled = !isLoading
             )
+            
+            Spacer(modifier = Modifier.height(16.dp))
             
             // Password Field
-            OutlinedTextField(
+            ElegantTextField(
                 value = password,
                 onValueChange = { password = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                placeholder = { 
-                    Text(
-                        "Password", 
-                        color = TextGray,
-                        fontSize = 15.sp
-                    ) 
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Password",
-                        tint = TextGray
-                    )
-                },
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            imageVector = if (passwordVisible) Icons.Default.Info else Icons.Default.Lock,
-                            contentDescription = "Toggle password",
-                            tint = TextGray
-                        )
-                    }
-                },
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextWhite,
-                    unfocusedTextColor = TextWhite,
-                    focusedBorderColor = CyanPrimary,
-                    unfocusedBorderColor = TextGray.copy(alpha = 0.3f),
-                    focusedContainerColor = DarkCard.copy(alpha = 0.5f),
-                    unfocusedContainerColor = DarkCard.copy(alpha = 0.3f)
-                ),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true,
-                enabled = !isLoading
+                placeholder = "Password",
+                leadingIcon = Icons.Default.Lock,
+                isPassword = true,
+                passwordVisible = passwordVisible,
+                onTogglePasswordVisibility = { passwordVisible = !passwordVisible },
+                enabled = !isLoading,
+                isError = !isPasswordValid,
+                errorMessage = if (!isPasswordValid) "Password must be at least 6 characters" else null
             )
+            
+            Spacer(modifier = Modifier.height(16.dp))
             
             // Confirm Password Field
-            OutlinedTextField(
+            ElegantTextField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                placeholder = { 
-                    Text(
-                        "Confirm Password", 
-                        color = TextGray,
-                        fontSize = 15.sp
-                    ) 
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Confirm Password",
-                        tint = TextGray
-                    )
-                },
-                trailingIcon = {
-                    IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
-                        Icon(
-                            imageVector = if (confirmPasswordVisible) Icons.Default.Info else Icons.Default.Lock,
-                            contentDescription = "Toggle password",
-                            tint = TextGray
-                        )
-                    }
-                },
-                visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextWhite,
-                    unfocusedTextColor = TextWhite,
-                    focusedBorderColor = if (passwordsMatch || confirmPassword.isEmpty()) CyanPrimary else ErrorRed,
-                    unfocusedBorderColor = if (passwordsMatch || confirmPassword.isEmpty()) TextGray.copy(alpha = 0.3f) else ErrorRed.copy(alpha = 0.5f),
-                    focusedContainerColor = DarkCard.copy(alpha = 0.5f),
-                    unfocusedContainerColor = DarkCard.copy(alpha = 0.3f)
-                ),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true,
-                enabled = !isLoading
+                placeholder = "Confirm Password",
+                leadingIcon = Icons.Default.Lock,
+                isPassword = true,
+                passwordVisible = confirmPasswordVisible,
+                onTogglePasswordVisibility = { confirmPasswordVisible = !confirmPasswordVisible },
+                enabled = !isLoading,
+                isError = !passwordsMatch,
+                errorMessage = if (!passwordsMatch) "Passwords do not match" else null
             )
             
-            // Password match indicator
-            if (confirmPassword.isNotEmpty() && !passwordsMatch) {
-                Text(
-                    text = "Passwords do not match",
-                    color = ErrorRed,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, bottom = 16.dp)
-                )
-            } else {
-                Spacer(modifier = Modifier.height(16.dp))
-            }
+            Spacer(modifier = Modifier.height(36.dp))
             
             // Sign Up Button
-            Button(
+            GoldenButton(
+                text = if (isLoading) "CREATING ACCOUNT..." else "CREATE ACCOUNT",
                 onClick = {
-                    if (allFieldsFilled && passwordsMatch) {
-                        onSignUp(username, email, password, dateOfBirth)
+                    if (allFieldsFilled && passwordsMatch && isEmailValid && isPasswordValid) {
+                        onSignUp(username, firstName, lastName, email, password, dateOfBirth)
                     }
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp),
-                enabled = allFieldsFilled && passwordsMatch && !isLoading,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = CyanPrimary,
-                    contentColor = DarkBackground,
-                    disabledContainerColor = CyanPrimary.copy(alpha = 0.3f)
-                ),
-                shape = RoundedCornerShape(29.dp),
-                elevation = ButtonDefaults.buttonElevation(
-                    defaultElevation = 8.dp
-                )
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = DarkBackground,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Text(
-                        "Sign Up",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
-                }
-            }
+                enabled = allFieldsFilled && passwordsMatch && !isLoading && isEmailValid && isPasswordValid,
+                loading = isLoading,
+                modifier = Modifier.fillMaxWidth()
+            )
             
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             
-            // Already have account
+            // Login Link
             Row(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "Already have an account? ",
-                    color = TextGray,
+                    color = SilverGray,
                     fontSize = 14.sp
                 )
-                TextButton(
-                    onClick = onNavigateToLogin,
-                    enabled = !isLoading
-                ) {
-                    Text(
-                        text = "Log In",
-                        color = CyanPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
+                Text(
+                    text = "Log In",
+                    color = GoldPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable(enabled = !isLoading) { onNavigateToLogin() }
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(40.dp))
+        }
+    }
+}
+
+// ==================== REUSABLE COMPONENTS ====================
+
+@Composable
+fun AnimatedLogo(size: Int = 140) {
+    val infiniteTransition = rememberInfiniteTransition(label = "logo")
+    
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(20000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+    
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+    
+    Box(
+        modifier = Modifier.size(size.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // Rotating golden ring
+        Canvas(modifier = Modifier
+            .size((size + 20).dp)
+            .rotate(rotation)
+        ) {
+            val radius = this.size.width / 2
+            drawCircle(
+                brush = Brush.sweepGradient(
+                    colors = listOf(
+                        GoldPrimary,
+                        GoldLight,
+                        AmberAccent,
+                        GoldPrimary
                     )
-                }
+                ),
+                radius = radius,
+                style = Stroke(width = 3.dp.toPx())
+            )
+        }
+        
+        // Inner glow
+        Canvas(modifier = Modifier.size((size + 40).dp)) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        GoldPrimary.copy(alpha = 0.4f),
+                        GoldPrimary.copy(alpha = 0.2f),
+                        Color.Transparent
+                    )
+                ),
+                radius = this.size.width / 2
+            )
+        }
+        
+        // R Letter
+        Text(
+            text = "R",
+            fontSize = (size * 0.6f).sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = GoldPrimary,
+            modifier = Modifier.scale(scale)
+        )
+    }
+}
+
+@Composable
+fun ShimmerText(text: String, fontSize: androidx.compose.ui.unit.TextUnit) {
+    val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
+    
+    val offset by infiniteTransition.animateFloat(
+        initialValue = -1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerOffset"
+    )
+    
+    Text(
+        text = text,
+        fontSize = fontSize,
+        fontWeight = FontWeight.ExtraBold,
+        letterSpacing = 4.sp,
+        style = MaterialTheme.typography.displayMedium.copy(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    PearlWhite,
+                    GoldLight,
+                    PearlWhite,
+                    GoldLight,
+                    PearlWhite
+                ),
+                start = Offset(offset * 1000, 0f),
+                end = Offset((offset + 1) * 1000, 0f)
+            )
+        )
+    )
+}
+
+@Composable
+fun AnimatedProfileAvatar(size: androidx.compose.ui.unit.Dp = 120.dp) {
+    val infiniteTransition = rememberInfiniteTransition(label = "avatar")
+    
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(10000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "avatarRotation"
+    )
+    
+    Box(
+        modifier = Modifier.size(size + 20.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // Rotating gradient border
+        Canvas(
+            modifier = Modifier
+                .size(size + 20.dp)
+                .rotate(rotation)
+        ) {
+            val radius = this.size.width / 2
+            drawCircle(
+                brush = Brush.sweepGradient(
+                    colors = listOf(
+                        GoldPrimary,
+                        AmberAccent,
+                        CopperShine,
+                        GoldLight,
+                        GoldPrimary
+                    )
+                ),
+                radius = radius,
+                style = Stroke(width = 3.dp.toPx())
+            )
+        }
+        
+        // Avatar Circle
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            GoldPrimary.copy(alpha = 0.2f),
+                            DarkSlate.copy(alpha = 0.8f)
+                        )
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = "Profile",
+                tint = GoldPrimary,
+                modifier = Modifier.size(size * 0.5f)
+            )
+        }
+    }
+}
+
+@Composable
+fun GoldenButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(62.dp),
+        enabled = enabled && !loading,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Transparent,
+            contentColor = DeepBlack,
+            disabledContainerColor = Color.Transparent,
+            disabledContentColor = SilverGray.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(31.dp),
+        contentPadding = PaddingValues(0.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    if (enabled && !loading) {
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                GoldDark,
+                                GoldPrimary,
+                                GoldLight,
+                                GoldPrimary,
+                                GoldDark
+                            )
+                        )
+                    } else {
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                SilverGray.copy(alpha = 0.3f),
+                                SilverGray.copy(alpha = 0.3f)
+                            )
+                        )
+                    },
+                    shape = RoundedCornerShape(31.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    color = DeepBlack,
+                    strokeWidth = 3.dp
+                )
+            } else {
+                Text(
+                    text = text,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp,
+                    color = if (enabled) DeepBlack else SilverGray.copy(alpha = 0.5f)
+                )
             }
         }
     }
 }
 
-// ==================== ANIMATED BACKGROUND ====================
 @Composable
-fun AnimatedBackgroundParticles() {
-    val infiniteTransition = rememberInfiniteTransition(label = "particles")
-    
-    val animatedOffsets = remember {
-        List(8) { 
-            Pair(
-                (0..360).random().toFloat(),
-                (50..150).random().toFloat()
+fun OutlinedGoldenButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.height(62.dp),
+        enabled = enabled,
+        border = BorderStroke(
+            width = 2.dp,
+            brush = Brush.horizontalGradient(
+                colors = listOf(GoldDark, GoldPrimary, GoldLight)
+            )
+        ),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = DarkSlate.copy(alpha = 0.3f),
+            contentColor = GoldPrimary,
+            disabledContainerColor = DarkSlate.copy(alpha = 0.1f),
+            disabledContentColor = SilverGray.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(31.dp)
+    ) {
+        Text(
+            text = text,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.sp
+        )
+    }
+}
+
+@Composable
+fun ElegantTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    isPassword: Boolean = false,
+    passwordVisible: Boolean = false,
+    onTogglePasswordVisibility: () -> Unit = {},
+    enabled: Boolean = true,
+    isError: Boolean = false,
+    errorMessage: String? = null
+) {
+    Column(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { 
+                Text(
+                    placeholder, 
+                    color = SilverGray.copy(alpha = 0.6f),
+                    fontSize = 15.sp
+                ) 
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = placeholder,
+                    tint = if (isError) ErrorRose else GoldPrimary
+                )
+            },
+            trailingIcon = if (isPassword) {
+                {
+                    IconButton(onClick = onTogglePasswordVisibility) {
+                        Icon(
+                            imageVector = if (passwordVisible) Icons.Default.Clear else Icons.Default.Lock,
+                            contentDescription = "Toggle password",
+                            tint = SilverGray
+                        )
+                    }
+                }
+            } else null,
+            visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = PearlWhite,
+                unfocusedTextColor = SoftWhite,
+                disabledTextColor = SilverGray.copy(alpha = 0.5f),
+                focusedBorderColor = if (isError) ErrorRose else GoldPrimary,
+                unfocusedBorderColor = if (isError) ErrorRose.copy(alpha = 0.5f) else SilverGray.copy(alpha = 0.3f),
+                focusedContainerColor = DarkSlate.copy(alpha = 0.5f),
+                unfocusedContainerColor = DarkSlate.copy(alpha = 0.3f),
+                disabledContainerColor = DarkSlate.copy(alpha = 0.2f),
+                cursorColor = GoldPrimary,
+                errorBorderColor = ErrorRose,
+                errorCursorColor = ErrorRose
+            ),
+            shape = RoundedCornerShape(16.dp),
+            singleLine = true,
+            enabled = enabled,
+            isError = isError
+        )
+        
+        if (isError && errorMessage != null) {
+            Text(
+                text = errorMessage,
+                color = ErrorRose,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 16.dp, top = 4.dp)
             )
         }
     }
+}
 
-    val animatedValues = List(8) { index ->
+@Composable
+fun ErrorCard(message: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = ErrorRose.copy(alpha = 0.15f)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, ErrorRose.copy(alpha = 0.3f))
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = "Error",
+                tint = ErrorRose,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = message,
+                color = ErrorRose,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+fun AnimatedLuxuryBackground() {
+    val infiniteTransition = rememberInfiniteTransition(label = "background")
+    
+    // Create multiple floating orbs
+    val orbs = remember {
+        List(12) { index ->
+            Triple(
+                (0..100).random() / 100f, // x position
+                (0..100).random() / 100f, // y position
+                (30..80).random() // size
+            )
+        }
+    }
+    
+    val animatedValues = orbs.mapIndexed { index, _ ->
         infiniteTransition.animateFloat(
             initialValue = 0f,
             targetValue = 360f,
             animationSpec = infiniteRepeatable(
                 animation = tween(
-                    durationMillis = 20000 + index * 2000,
+                    durationMillis = 15000 + index * 3000,
                     easing = LinearEasing
-                )
+                ),
+                repeatMode = RepeatMode.Restart
             ),
-            label = "particle$index"
+            label = "orb$index"
         )
     }
-
+    
     Canvas(modifier = Modifier.fillMaxSize()) {
-        animatedOffsets.forEachIndexed { index, (angle, radius) ->
-            val time = animatedValues[index].value + angle
+        // Background gradient
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    DeepBlack,
+                    RichBlack,
+                    DeepBlack
+                )
+            )
+        )
+        
+        // Floating orbs with motion
+        orbs.forEachIndexed { index, (xPos, yPos, orbSize) ->
+            val angle = animatedValues[index].value
+            val radiusX = size.width * 0.15f
+            val radiusY = size.height * 0.1f
             
-            val x = size.width / 2 + cos(Math.toRadians(time.toDouble())).toFloat() * radius
-            val y = size.height / 2 + sin(Math.toRadians(time.toDouble())).toFloat() * radius
+            val centerX = size.width * xPos
+            val centerY = size.height * yPos
             
+            val x = centerX + cos(Math.toRadians(angle.toDouble())).toFloat() * radiusX
+            val y = centerY + sin(Math.toRadians(angle.toDouble())).toFloat() * radiusY
+            
+            // Orb glow
             drawCircle(
-                color = if (index % 2 == 0) PurpleAccent.copy(alpha = 0.3f) else CyanPrimary.copy(alpha = 0.2f),
-                radius = (8 + index * 2).toFloat(),
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        when (index % 3) {
+                            0 -> GoldPrimary.copy(alpha = 0.15f)
+                            1 -> AmberAccent.copy(alpha = 0.12f)
+                            else -> CopperShine.copy(alpha = 0.1f)
+                        },
+                        Color.Transparent
+                    )
+                ),
+                radius = orbSize.toFloat(),
                 center = Offset(x, y)
             )
         }
@@ -1003,7 +1088,7 @@ fun SignUpScreenPreview() {
     SignUpScreen(
         onNavigateToLogin = {},
         onNavigateBack = {},
-        onSignUp = { _, _, _, _ -> },
+        onSignUp = { _, _, _, _, _, _ -> },
         authState = AuthState.Idle
     )
 }

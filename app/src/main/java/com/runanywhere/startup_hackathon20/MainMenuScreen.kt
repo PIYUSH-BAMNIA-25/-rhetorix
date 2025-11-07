@@ -1,9 +1,13 @@
 package com.runanywhere.startup_hackathon20
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -19,34 +23,47 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.window.Dialog
 import com.runanywhere.startup_hackathon20.data.DifficultyLevel
+import com.runanywhere.startup_hackathon20.GameMode
 import kotlin.math.cos
 import kotlin.math.sin
 
-// Color Palette
+// Elegant Dark Theme Color Palette with Golden Accents
+private val DeepBlack = Color(0xFF0D0D12)
+private val RichBlack = Color(0xFF16161D)
+private val DarkSlate = Color(0xFF1E1E28)
+private val GoldPrimary = Color(0xFFD4AF37)
+private val GoldLight = Color(0xFFF4E6B8)
+private val GoldDark = Color(0xFFB8963C)
+private val AmberAccent = Color(0xFFFFB84D)
+private val CopperShine = Color(0xFFE8985E)
+private val SilverGray = Color(0xFF9BA4B5)
+private val PearlWhite = Color(0xFFF5F5F7)
+private val SoftWhite = Color(0xFFE8E8ED)
+private val ErrorRose = Color(0xFFFF6B6B)
+private val SuccessGreen = Color(0xFF51CF66)
+private val GreenWin = Color(0xFF4ADE80)
+private val YellowDraw = Color(0xFFFBBF24)
 private val CyanPrimary = Color(0xFF00D9FF)
-private val CyanLight = Color(0xFF5FEDFF)
 private val PurpleAccent = Color(0xFF9D4EDD)
-private val DarkBackground = Color(0xFF0A0A0F)
-private val DarkSurface = Color(0xFF1A1A2E)
 private val DarkCard = Color(0xFF16213E)
 private val TextWhite = Color(0xFFFFFFFF)
 private val TextGray = Color(0xFFB0B0B0)
-private val GreenWin = Color(0xFF4ADE80)
-private val RedLoss = Color(0xFFFF6B6B)
-private val YellowDraw = Color(0xFFFBBF24)
 
 enum class BottomNavPage {
     HOME, PROFILE
@@ -65,16 +82,484 @@ data class UserProfile(
 data class UserStats(
     val wins: Int = 0,
     val losses: Int = 0,
-    val draws: Int = 0,
+    val totalGames: Int = 0,
     val averageScore: Double = 0.0,
-    val likes: Int = 0,
-    val playerId: String = "RX${(10000..99999).random()}"
+    val playerId: String
 )
+
+data class MatchHistoryItem(
+    val opponent: String,
+    val result: String,
+    val score: String,
+    val color: Color
+)
+
+
+@Composable
+fun QuickActionButton(
+    icon: ImageVector,
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "scale"
+    )
+
+    Card(
+        modifier = modifier
+            .height(70.dp)
+            .scale(scale)
+            .shadow(
+                elevation = 12.dp,
+                shape = RoundedCornerShape(16.dp),
+                spotColor = GoldPrimary.copy(alpha = 0.2f)
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = DarkSlate.copy(alpha = 0.6f)
+        ),
+        border = BorderStroke(
+            width = 1.dp,
+            color = GoldPrimary.copy(alpha = 0.3f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = text,
+                tint = GoldPrimary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = text,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = PearlWhite
+            )
+        }
+    }
+}
+
+@Composable
+fun ElegantTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    leadingIcon: ImageVector,
+    modifier: Modifier = Modifier,
+    isPassword: Boolean = false,
+    passwordVisible: Boolean = false,
+    onTogglePasswordVisibility: () -> Unit = {},
+    enabled: Boolean = true,
+    isError: Boolean = false,
+    errorMessage: String? = null
+) {
+    Column(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = {
+                Text(
+                    placeholder,
+                    color = SilverGray.copy(alpha = 0.6f),
+                    fontSize = 15.sp
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = placeholder,
+                    tint = if (isError) ErrorRose else GoldPrimary
+                )
+            },
+            trailingIcon = if (isPassword) {
+                {
+                    IconButton(onClick = onTogglePasswordVisibility) {
+                        Icon(
+                            imageVector = if (passwordVisible) Icons.Default.Clear else Icons.Default.Lock,
+                            contentDescription = "Toggle password",
+                            tint = SilverGray
+                        )
+                    }
+                }
+            } else null,
+            visualTransformation = if (isPassword && !passwordVisible) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = PearlWhite,
+                unfocusedTextColor = SoftWhite,
+                disabledTextColor = SilverGray.copy(alpha = 0.5f),
+                focusedBorderColor = if (isError) ErrorRose else GoldPrimary,
+                unfocusedBorderColor = if (isError) ErrorRose.copy(alpha = 0.5f) else SilverGray.copy(
+                    alpha = 0.3f
+                ),
+                focusedContainerColor = DarkSlate.copy(alpha = 0.5f),
+                unfocusedContainerColor = DarkSlate.copy(alpha = 0.3f),
+                cursorColor = GoldPrimary,
+                errorBorderColor = ErrorRose,
+                errorCursorColor = ErrorRose
+            ),
+            shape = RoundedCornerShape(16.dp),
+            singleLine = true,
+            enabled = enabled,
+            isError = isError
+        )
+
+        if (isError && errorMessage != null) {
+            Text(
+                text = errorMessage,
+                color = ErrorRose,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun GoldenButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+    isDestructive: Boolean = false
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(62.dp),
+        enabled = enabled && !loading,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Transparent,
+            contentColor = DeepBlack,
+            disabledContainerColor = Color.Transparent,
+            disabledContentColor = SilverGray.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(31.dp),
+        contentPadding = PaddingValues(0.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    if (enabled && !loading) {
+                        if (isDestructive) {
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    ErrorRose.copy(alpha = 0.8f),
+                                    ErrorRose,
+                                    ErrorRose.copy(alpha = 0.8f)
+                                )
+                            )
+                        } else {
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    GoldDark,
+                                    GoldPrimary,
+                                    GoldLight,
+                                    GoldPrimary,
+                                    GoldDark
+                                )
+                            )
+                        }
+                    } else {
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                SilverGray.copy(alpha = 0.3f),
+                                SilverGray.copy(alpha = 0.3f)
+                            )
+                        )
+                    },
+                    shape = RoundedCornerShape(31.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    color = if (isDestructive) PearlWhite else DeepBlack,
+                    strokeWidth = 3.dp
+                )
+            } else {
+                Text(
+                    text = text,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp,
+                    color = if (enabled) {
+                        if (isDestructive) PearlWhite else DeepBlack
+                    } else {
+                        SilverGray.copy(alpha = 0.5f)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ComingSoonDialog(
+    feature: String,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(
+                    elevation = 32.dp,
+                    shape = RoundedCornerShape(28.dp),
+                    spotColor = GoldPrimary.copy(alpha = 0.3f)
+                ),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = PearlWhite.copy(alpha = 0.95f)
+            ),
+            border = BorderStroke(2.dp, GoldPrimary.copy(alpha = 0.4f))
+        ) {
+            Column(
+                modifier = Modifier.padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = DarkSlate
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = "Coming Soon",
+                    tint = GoldPrimary,
+                    modifier = Modifier.size(64.dp)
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = "COMING SOON",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = DarkSlate,
+                    letterSpacing = 2.sp,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "$feature is currently under development.",
+                    fontSize = 16.sp,
+                    color = DarkSlate.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Stay tuned for updates!",
+                    fontSize = 14.sp,
+                    color = SilverGray,
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(0.dp),
+                    shape = RoundedCornerShape(28.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        GoldDark,
+                                        GoldPrimary,
+                                        GoldLight
+                                    )
+                                ),
+                                shape = RoundedCornerShape(28.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "OKAY",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = DeepBlack,
+                            letterSpacing = 2.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun P2PUnlockDialog(
+    currentWins: Int,
+    onDismiss: () -> Unit
+) {
+    val difficulty = DifficultyLevel.PVP
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(
+                    elevation = 32.dp,
+                    shape = RoundedCornerShape(28.dp),
+                    spotColor = GoldPrimary.copy(alpha = 0.3f)
+                ),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = DarkSlate
+            ),
+            border = BorderStroke(2.dp, GoldPrimary.copy(alpha = 0.3f))
+        ) {
+            Column(
+                modifier = Modifier.padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = SilverGray
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "Locked",
+                    tint = GoldPrimary,
+                    modifier = Modifier.size(64.dp)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "⚔️ P2P MODE LOCKED",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = PearlWhite,
+                    letterSpacing = 1.sp,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = difficulty.description,
+                    fontSize = 14.sp,
+                    color = SilverGray,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "Progress: $currentWins / ${difficulty.requiredWins} wins",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GoldPrimary
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .height(8.dp)
+                        .background(SilverGray.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(currentWins.toFloat() / difficulty.requiredWins.toFloat())
+                            .fillMaxHeight()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(GoldDark, GoldPrimary, GoldLight)
+                                ),
+                                RoundedCornerShape(4.dp)
+                            )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = "Win ${difficulty.requiredWins - currentWins} more ${if (difficulty.requiredWins - currentWins == 1) "match" else "matches"} to unlock!",
+                    fontSize = 14.sp,
+                    color = SoftWhite,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                GoldenButton(
+                    text = "GOT IT!",
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun MainMenuScreen(
     userProfile: UserProfile,
     userWins: Int = 0,
+    userLosses: Int = 0,
+    userTotalGames: Int = 0,
+    userAverageScore: Float = 0f,
+    userPlayerId: String = "",
     onModeSelected: (GameMode) -> Unit,
     onLogout: () -> Unit,
     onDebug: () -> Unit = {}
@@ -82,40 +567,52 @@ fun MainMenuScreen(
     var currentPage by remember { mutableStateOf(BottomNavPage.HOME) }
     var settingsPage by remember { mutableStateOf(SettingsSubPage.MAIN) }
     var showP2PUnlockDialog by remember { mutableStateOf(false) }
-    val userStats = remember {
+    var showComingSoonDialog by remember { mutableStateOf<String?>(null) }
+
+    val context = LocalContext.current
+
+    // Fetch real debate history from database
+    var debateHistory by remember {
+        mutableStateOf<List<com.runanywhere.startup_hackathon20.network.models.ServerDebateHistory>>(
+            emptyList()
+        )
+    }
+    var isLoadingHistory by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        val repository = com.runanywhere.startup_hackathon20.network.ServerRepository(context)
+        repository.getUserDebateHistory(limit = 10).onSuccess { history ->
+            debateHistory = history
+            isLoadingHistory = false
+        }.onFailure {
+            isLoadingHistory = false
+        }
+    }
+
+    val userStats = remember(userWins, userLosses, userTotalGames, userAverageScore, userPlayerId) {
         UserStats(
             wins = userWins,
-            losses = 8,
-            draws = 3,
-            averageScore = 87.5,
-            likes = 142
+            losses = userLosses,
+            totalGames = userTotalGames,
+            averageScore = userAverageScore.toDouble(),
+            playerId = userPlayerId
         )
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        DarkBackground,
-                        DarkSurface,
-                        DarkBackground
-                    )
-                )
-            )
+            .background(DeepBlack)
     ) {
-        // Animated Background
-        MainMenuAnimatedBackground()
+        AnimatedLuxuryBackground()
 
-        // Main Content with page transitions
         AnimatedContent(
             targetState = currentPage,
             transitionSpec = {
-                fadeIn(animationSpec = tween(300)) + 
-                slideInHorizontally(animationSpec = tween(300)) { it / 3 } togetherWith
-                fadeOut(animationSpec = tween(300)) +
-                slideOutHorizontally(animationSpec = tween(300)) { -it / 3 }
+                fadeIn(animationSpec = tween(400)) +
+                        slideInHorizontally(animationSpec = tween(400)) { it / 3 } togetherWith
+                        fadeOut(animationSpec = tween(400)) +
+                        slideOutHorizontally(animationSpec = tween(400)) { -it / 3 }
             },
             label = "page_transition"
         ) { page ->
@@ -124,12 +621,18 @@ fun MainMenuScreen(
                     userProfile = userProfile,
                     userStats = userStats,
                     userWins = userWins,
+                    debateHistory = debateHistory,
+                    isLoadingHistory = isLoadingHistory,
                     onModeSelected = onModeSelected,
-                    onShowP2PUnlock = { showP2PUnlockDialog = true }
+                    onShowP2PUnlock = { showP2PUnlockDialog = true },
+                    onShowComingSoon = { feature -> showComingSoonDialog = feature }
                 )
+
                 BottomNavPage.PROFILE -> ProfileScreen(
                     userProfile = userProfile,
                     userStats = userStats,
+                    debateHistory = debateHistory,
+                    isLoadingHistory = isLoadingHistory,
                     onLogout = onLogout,
                     onDebug = onDebug,
                     settingsPage = settingsPage,
@@ -138,31 +641,39 @@ fun MainMenuScreen(
             }
         }
 
-        // Glassmorphism Bottom Navigation Bar
         GlassmorphismBottomNav(
             currentPage = currentPage,
             onPageSelected = { currentPage = it },
             modifier = Modifier.align(Alignment.BottomCenter)
         )
 
-        // P2P Unlock Dialog
         if (showP2PUnlockDialog) {
             P2PUnlockDialog(
                 currentWins = userWins,
                 onDismiss = { showP2PUnlockDialog = false }
             )
         }
+
+        showComingSoonDialog?.let { feature ->
+            ComingSoonDialog(
+                feature = feature,
+                onDismiss = { showComingSoonDialog = null }
+            )
+        }
     }
 }
 
-// ==================== HOME SCREEN ====================
+// Continue with HomeScreen, ProfileScreen and remaining composables...
 @Composable
 fun HomeScreen(
     userProfile: UserProfile,
     userStats: UserStats,
     userWins: Int = 0,
+    debateHistory: List<com.runanywhere.startup_hackathon20.network.models.ServerDebateHistory>,
+    isLoadingHistory: Boolean,
     onModeSelected: (GameMode) -> Unit,
-    onShowP2PUnlock: () -> Unit = {}
+    onShowP2PUnlock: () -> Unit = {},
+    onShowComingSoon: (String) -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -172,64 +683,80 @@ fun HomeScreen(
             .padding(top = 40.dp, bottom = 100.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Header Section
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            ShimmerText(
+                text = "RETRORIX",
+                fontSize = 36.sp
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Welcome back, ${userProfile.name.split(" ").firstOrNull() ?: "Player"}!",
+                fontSize = 16.sp,
+                color = SilverGray,
+                letterSpacing = 1.sp
+            )
+        }
+
+        ElegantStatsCard(userStats)
+
+        Spacer(modifier = Modifier.height(32.dp))
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 24.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(bottom = 32.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column {
-                Text(
-                    text = "Retrorix",
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = CyanPrimary
-                )
-                Text(
-                    text = "Welcome back, ${userProfile.name.split(" ").firstOrNull() ?: "Player"}!",
-                    fontSize = 16.sp,
-                    color = TextGray
-                )
-            }
+            QuickActionButton(
+                icon = Icons.Default.Star,
+                text = "Leaderboard",
+                modifier = Modifier.weight(1f),
+                onClick = { onShowComingSoon("Leaderboard") }
+            )
+
+            QuickActionButton(
+                icon = Icons.Default.Face,
+                text = "Friends",
+                modifier = Modifier.weight(1f),
+                onClick = { onShowComingSoon("Friends") }
+            )
         }
 
-        // Stats Overview Card
-        StatsOverviewCard(userStats)
-
-        Spacer(modifier = Modifier.height(48.dp))
-
-        // Game Modes
         Text(
-            text = "Choose Your Battle",
-            fontSize = 28.sp,
+            text = "CHOOSE YOUR BATTLE",
+            fontSize = 24.sp,
             fontWeight = FontWeight.ExtraBold,
-            color = TextWhite,
+            color = PearlWhite,
+            letterSpacing = 2.sp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 24.dp),
             textAlign = TextAlign.Center
         )
 
-        // Practice VS AI Button - ALWAYS UNLOCKED
-        GameModeCard(
+        GoldenGameModeCard(
             title = "Practice VS AI",
-            icon = Icons.Filled.Phone,
-            gradient = listOf(CyanPrimary, CyanLight),
+            icon = Icons.Default.Phone,
+            gradient = listOf(GoldPrimary, GoldLight, AmberAccent),
             description = "Train with AI opponents",
             isLocked = false,
             onClick = { onModeSelected(GameMode.AI_INTERMEDIATE) }
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // P2P Mode Button - UNLOCK AT 3 WINS
         val p2pUnlocked = DifficultyLevel.PVP.isUnlocked(userWins)
-        GameModeCard(
+        GoldenGameModeCard(
             title = "P2P Mode",
-            icon = Icons.Filled.AccountCircle,
-            gradient = listOf(PurpleAccent, Color(0xFFD946EF)),
+            icon = Icons.Default.AccountCircle,
+            gradient = listOf(CopperShine, AmberAccent, GoldPrimary),
             description = if (p2pUnlocked) "Challenge real players" else "🔒 Win ${DifficultyLevel.PVP.requiredWins - userWins} more to unlock",
             isLocked = !p2pUnlocked,
             onClick = {
@@ -243,73 +770,105 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        // Quick Stats Section
         Text(
-            text = "Recent Activity",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextWhite,
+            text = "RECENT ACTIVITY",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = GoldPrimary,
+            letterSpacing = 2.sp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp)
         )
 
-        RecentMatchesCard()
+        RecentMatchesCard(
+            debateHistory = debateHistory.take(3),
+            isLoading = isLoadingHistory
+        )
     }
 }
 
 @Composable
-fun StatsOverviewCard(stats: UserStats) {
+fun ElegantStatsCard(stats: UserStats) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(8.dp, RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(20.dp),
+            .shadow(
+                elevation = 24.dp,
+                shape = RoundedCornerShape(24.dp),
+                spotColor = GoldPrimary.copy(alpha = 0.3f)
+            ),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = DarkCard.copy(alpha = 0.7f)
+            containerColor = DarkSlate.copy(alpha = 0.8f)
+        ),
+        border = BorderStroke(
+            width = 1.dp,
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    GoldPrimary.copy(alpha = 0.5f),
+                    AmberAccent.copy(alpha = 0.3f)
+                )
+            )
         )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(24.dp),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            StatItem("W: ${stats.wins}", GreenWin)
-            StatItem("L: ${stats.losses}", RedLoss)
-            StatItem("D: ${stats.draws}", YellowDraw)
+            ElegantStatItem("WINS", stats.wins.toString(), GreenWin)
+            ElegantStatItem("LOSSES", stats.losses.toString(), ErrorRose)
+            ElegantStatItem("TOTAL", stats.totalGames.toString(), GoldPrimary)
         }
     }
 }
 
 @Composable
-fun StatItem(text: String, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+fun ElegantStatItem(label: String, value: String, color: Color) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(8.dp)
+    ) {
         Text(
-            text = text,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
+            text = value,
+            fontSize = 32.sp,
+            fontWeight = FontWeight.ExtraBold,
             color = color
         )
-        // Progress bar below stat
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = SilverGray,
+            letterSpacing = 1.sp
+        )
+
         Box(
             modifier = Modifier
                 .width(60.dp)
-                .height(4.dp)
-                .background(color.copy(alpha = 0.3f), RoundedCornerShape(2.dp))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.7f)
-                    .fillMaxHeight()
-                    .background(color, RoundedCornerShape(2.dp))
-            )
-        }
+                .height(3.dp)
+                .padding(top = 4.dp)
+                .background(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            color.copy(alpha = 0.3f),
+                            color,
+                            color.copy(alpha = 0.3f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(2.dp)
+                )
+        )
     }
 }
 
 @Composable
-fun GameModeCard(
+fun GoldenGameModeCard(
     title: String,
     icon: ImageVector,
     gradient: List<Color>,
@@ -320,7 +879,7 @@ fun GameModeCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.95f else 1f,
+        targetValue = if (isPressed) 0.97f else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
@@ -331,9 +890,13 @@ fun GameModeCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(180.dp)
+            .height(160.dp)
             .scale(scale)
-            .shadow(16.dp, RoundedCornerShape(24.dp))
+            .shadow(
+                elevation = 20.dp,
+                shape = RoundedCornerShape(24.dp),
+                spotColor = if (isLocked) SilverGray.copy(alpha = 0.2f) else GoldPrimary.copy(alpha = 0.3f)
+            )
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -351,8 +914,8 @@ fun GameModeCard(
                     if (isLocked) {
                         Brush.horizontalGradient(
                             listOf(
-                                TextGray.copy(alpha = 0.3f),
-                                TextGray.copy(alpha = 0.2f)
+                                SilverGray.copy(alpha = 0.3f),
+                                SilverGray.copy(alpha = 0.2f)
                             )
                         )
                     } else {
@@ -360,33 +923,31 @@ fun GameModeCard(
                     }
                 )
         ) {
-            // Decorative circles
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawCircle(
-                    color = Color.White.copy(alpha = if (isLocked) 0.05f else 0.1f),
-                    radius = 100f,
-                    center = Offset(size.width * 0.8f, size.height * 0.3f)
+                    color = Color.White.copy(alpha = if (isLocked) 0.03f else 0.15f),
+                    radius = 120f,
+                    center = Offset(size.width * 0.85f, size.height * 0.3f)
                 )
                 drawCircle(
-                    color = Color.White.copy(alpha = if (isLocked) 0.02f else 0.05f),
-                    radius = 60f,
-                    center = Offset(size.width * 0.2f, size.height * 0.7f)
+                    color = Color.White.copy(alpha = if (isLocked) 0.02f else 0.08f),
+                    radius = 80f,
+                    center = Offset(size.width * 0.15f, size.height * 0.7f)
                 )
             }
 
-            // Lock Overlay
             if (isLocked) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.4f)),
+                        .background(DeepBlack.copy(alpha = 0.5f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Lock,
+                        imageVector = Icons.Default.Lock,
                         contentDescription = "Locked",
-                        tint = TextWhite,
-                        modifier = Modifier.size(64.dp)
+                        tint = PearlWhite.copy(alpha = 0.7f),
+                        modifier = Modifier.size(56.dp)
                     )
                 }
             }
@@ -398,26 +959,30 @@ fun GameModeCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = title,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite.copy(alpha = if (isLocked) 0.6f else 1f)
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (isLocked) PearlWhite.copy(alpha = 0.5f) else DeepBlack,
+                        letterSpacing = 1.sp
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = description,
-                        fontSize = 16.sp,
-                        color = TextWhite.copy(alpha = if (isLocked) 0.5f else 0.8f),
-                        modifier = Modifier.padding(top = 4.dp)
+                        fontSize = 14.sp,
+                        color = if (isLocked) PearlWhite.copy(alpha = 0.4f) else DeepBlack.copy(
+                            alpha = 0.8f
+                        ),
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
                 Icon(
-                    imageVector = if (isLocked) Icons.Filled.Lock else icon,
+                    imageVector = icon,
                     contentDescription = title,
-                    tint = TextWhite.copy(alpha = if (isLocked) 0.6f else 1f),
-                    modifier = Modifier.size(60.dp)
+                    tint = if (isLocked) PearlWhite.copy(alpha = 0.5f) else DeepBlack.copy(alpha = 0.9f),
+                    modifier = Modifier.size(52.dp)
                 )
             }
         }
@@ -425,62 +990,106 @@ fun GameModeCard(
 }
 
 @Composable
-fun RecentMatchesCard() {
+fun RecentMatchesCard(
+    debateHistory: List<com.runanywhere.startup_hackathon20.network.models.ServerDebateHistory>,
+    isLoading: Boolean
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(8.dp, RoundedCornerShape(20.dp)),
+            .shadow(
+                elevation = 16.dp,
+                shape = RoundedCornerShape(20.dp),
+                spotColor = GoldPrimary.copy(alpha = 0.2f)
+            ),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = DarkCard.copy(alpha = 0.7f)
-        )
+            containerColor = DarkSlate.copy(alpha = 0.7f)
+        ),
+        border = BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.2f))
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            listOf(
-                Triple("AI Advanced", "Won", GreenWin),
-                Triple("Player_X42", "Lost", RedLoss),
-                Triple("AI Intermediate", "Won", GreenWin)
-            ).forEach { (opponent, result, color) ->
-                Row(
+            if (isLoading) {
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .height(100.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "vs $opponent",
-                        fontSize = 15.sp,
-                        color = TextGray
-                    )
-                    Text(
-                        text = result,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = color
+                    CircularProgressIndicator(
+                        color = GoldPrimary,
+                        modifier = Modifier.size(32.dp)
                     )
                 }
-                if (opponent != "AI Intermediate") {
-                    Divider(
-                        color = TextGray.copy(alpha = 0.2f),
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
+            } else if (debateHistory.isEmpty()) {
+                Text(
+                    text = "No debates yet. Start your first debate!",
+                    fontSize = 15.sp,
+                    color = SilverGray,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 20.dp)
+                )
+            } else {
+                debateHistory.forEachIndexed { index, debate ->
+                    val resultColor = if (debate.won) GreenWin else ErrorRose
+                    val result = if (debate.won) "Won" else "Lost"
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "vs ${debate.opponentType.replace("_", " ")}",
+                            fontSize = 15.sp,
+                            color = SoftWhite,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Card(
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = resultColor.copy(alpha = 0.2f)
+                            )
+                        ) {
+                            Text(
+                                text = result,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = resultColor,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    if (index < debateHistory.size - 1) {
+                        Divider(
+                            color = SilverGray.copy(alpha = 0.2f),
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-// ==================== PROFILE SCREEN ====================
+// ProfileScreen with all sub-functions will be too long, so I'll add it separately using a second edit
 @Composable
 fun ProfileScreen(
     userProfile: UserProfile,
     userStats: UserStats,
+    debateHistory: List<com.runanywhere.startup_hackathon20.network.models.ServerDebateHistory>,
+    isLoadingHistory: Boolean,
     onLogout: () -> Unit,
     onDebug: () -> Unit,
     settingsPage: SettingsSubPage,
     onSettingsPageChange: (SettingsSubPage) -> Unit
 ) {
+    val context = LocalContext.current
+
     when (settingsPage) {
         SettingsSubPage.MAIN -> {
             Column(
@@ -491,120 +1100,107 @@ fun ProfileScreen(
                     .padding(top = 40.dp, bottom = 100.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "Profile",
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = TextWhite,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 32.dp)
+                ShimmerText(
+                    text = "PROFILE",
+                    fontSize = 32.sp
                 )
 
-                // Profile Avatar with gradient border
-                Box(
-                    modifier = Modifier
-                        .size(140.dp)
-                        .padding(8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Canvas(modifier = Modifier.size(140.dp)) {
-                        drawCircle(
-                            brush = Brush.linearGradient(
-                                colors = listOf(CyanPrimary, PurpleAccent, CyanLight)
-                            ),
-                            radius = size.width / 2,
-                            style = Stroke(width = 4.dp.toPx())
-                        )
-                    }
+                Spacer(modifier = Modifier.height(32.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .size(120.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        CyanPrimary.copy(alpha = 0.3f),
-                                        PurpleAccent.copy(alpha = 0.3f)
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Person,
-                            contentDescription = "Profile",
-                            tint = TextWhite,
-                            modifier = Modifier.size(60.dp)
-                        )
-                    }
-                }
+                AnimatedProfileAvatar()
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Name and Email
                 Text(
                     text = userProfile.name,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextWhite
+                    color = PearlWhite
                 )
                 Text(
                     text = userProfile.email,
-                    fontSize = 16.sp,
-                    color = TextGray,
-                    modifier = Modifier.padding(top = 4.dp)
+                    fontSize = 15.sp,
+                    color = SilverGray,
+                    modifier = Modifier.padding(top = 6.dp)
                 )
 
-                // Player ID
                 Card(
                     modifier = Modifier
-                        .padding(top = 12.dp)
-                        .shadow(4.dp, RoundedCornerShape(12.dp)),
-                    shape = RoundedCornerShape(12.dp),
+                        .padding(top = 16.dp)
+                        .shadow(
+                            elevation = 8.dp,
+                            shape = RoundedCornerShape(16.dp),
+                            spotColor = GoldPrimary.copy(alpha = 0.3f)
+                        ),
+                    shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = DarkCard.copy(alpha = 0.7f)
-                    )
+                        containerColor = DarkSlate.copy(alpha = 0.8f)
+                    ),
+                    border = BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.3f))
                 ) {
-                    Text(
-                        text = "ID: ${userStats.playerId}",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = CyanPrimary,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "ID: ${userStats.playerId}",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GoldPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(
+                            onClick = {
+                                val clipboard =
+                                    context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = ClipData.newPlainText("Player ID", userStats.playerId)
+                                clipboard.setPrimaryClip(clip)
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Place,
+                                contentDescription = "Copy ID",
+                                tint = GoldPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(40.dp))
 
-                // Stats Section
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .shadow(8.dp, RoundedCornerShape(20.dp)),
-                    shape = RoundedCornerShape(20.dp),
+                        .shadow(
+                            elevation = 20.dp,
+                            shape = RoundedCornerShape(24.dp),
+                            spotColor = GoldPrimary.copy(alpha = 0.2f)
+                        ),
+                    shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = DarkCard.copy(alpha = 0.7f)
-                    )
+                        containerColor = DarkSlate.copy(alpha = 0.8f)
+                    ),
+                    border = BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.3f))
                 ) {
                     Column(modifier = Modifier.padding(24.dp)) {
                         Text(
-                            text = "Statistics",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite,
+                            text = "STATISTICS",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = GoldPrimary,
+                            letterSpacing = 2.sp,
                             modifier = Modifier.padding(bottom = 20.dp)
                         )
 
-                        // Grid of stats
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            ProfileStatItem("Wins", userStats.wins.toString(), GreenWin)
-                            ProfileStatItem("Losses", userStats.losses.toString(), RedLoss)
-                            ProfileStatItem("Draws", userStats.draws.toString(), YellowDraw)
+                            ProfileStatItem("WINS", userStats.wins.toString(), GreenWin)
+                            ProfileStatItem("LOSSES", userStats.losses.toString(), ErrorRose)
+                            ProfileStatItem("TOTAL", userStats.totalGames.toString(), GoldPrimary)
                         }
 
                         Spacer(modifier = Modifier.height(24.dp))
@@ -613,56 +1209,88 @@ fun ProfileScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            ProfileStatItem("Avg Score", "${userStats.averageScore}%", CyanPrimary)
-                            ProfileStatItem("Likes", userStats.likes.toString(), PurpleAccent)
                             ProfileStatItem(
-                                "Total",
-                                "${userStats.wins + userStats.losses + userStats.draws}",
-                                TextWhite
+                                "AVG SCORE",
+                                "${userStats.averageScore.toInt()}%",
+                                AmberAccent
                             )
+                            ProfileStatItem(
+                                "WIN RATE",
+                                if (userStats.totalGames > 0) "${((userStats.wins.toFloat() / userStats.totalGames) * 100).toInt()}%" else "0%",
+                                GreenWin
+                            )
+                            ProfileStatItem("DEBATES", userStats.totalGames.toString(), PearlWhite)
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Match History
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .shadow(8.dp, RoundedCornerShape(20.dp)),
+                        .shadow(
+                            elevation = 16.dp,
+                            shape = RoundedCornerShape(20.dp),
+                            spotColor = GoldPrimary.copy(alpha = 0.2f)
+                        ),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = DarkCard.copy(alpha = 0.7f)
-                    )
+                        containerColor = DarkSlate.copy(alpha = 0.7f)
+                    ),
+                    border = BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.2f))
                 ) {
                     Column(modifier = Modifier.padding(24.dp)) {
                         Text(
-                            text = "Match History",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite,
+                            text = "MATCH HISTORY",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = GoldPrimary,
+                            letterSpacing = 2.sp,
                             modifier = Modifier.padding(bottom = 16.dp)
                         )
 
-                        listOf(
-                            MatchHistoryItem("AI Advanced", "Won", "95%", GreenWin),
-                            MatchHistoryItem("Player_X42", "Lost", "72%", RedLoss),
-                            MatchHistoryItem("AI Intermediate", "Won", "88%", GreenWin),
-                            MatchHistoryItem("Player_Debate", "Draw", "80%", YellowDraw)
-                        ).forEach { item ->
-                            MatchHistoryRow(item)
-                            if (item != MatchHistoryItem(
-                                    "Player_Debate",
-                                    "Draw",
-                                    "80%",
-                                    YellowDraw
-                                )
+                        if (isLoadingHistory) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(100.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Divider(
-                                    color = TextGray.copy(alpha = 0.2f),
-                                    modifier = Modifier.padding(vertical = 8.dp)
+                                CircularProgressIndicator(
+                                    color = GoldPrimary,
+                                    modifier = Modifier.size(32.dp)
                                 )
+                            }
+                        } else if (debateHistory.isEmpty()) {
+                            Text(
+                                text = "No debate history yet.",
+                                fontSize = 15.sp,
+                                color = SilverGray,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 20.dp)
+                            )
+                        } else {
+                            debateHistory.take(5).forEachIndexed { index, debate ->
+                                val resultColor = if (debate.won) GreenWin else ErrorRose
+                                val result = if (debate.won) "Won" else "Lost"
+
+                                MatchHistoryRow(
+                                    MatchHistoryItem(
+                                        opponent = debate.opponentType.replace("_", " "),
+                                        result = result,
+                                        score = "${debate.userScore}%",
+                                        color = resultColor
+                                    )
+                                )
+                                if (index < debateHistory.take(5).size - 1) {
+                                    Divider(
+                                        color = SilverGray.copy(alpha = 0.2f),
+                                        modifier = Modifier.padding(vertical = 8.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -670,29 +1298,20 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Settings Section
                 Text(
-                    text = "Settings",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
+                    text = "SETTINGS",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = GoldPrimary,
+                    letterSpacing = 2.sp,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 16.dp)
                 )
 
-                // Account Section
-                Text(
-                    text = "Account",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextGray,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-
                 SettingsCard {
                     SettingsItem(
-                        icon = Icons.Filled.Lock,
+                        icon = Icons.Default.Lock,
                         title = "Change Password",
                         onClick = { onSettingsPageChange(SettingsSubPage.CHANGE_PASSWORD) }
                     )
@@ -700,28 +1319,13 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Logout Button
-                Button(
+                GoldenButton(
+                    text = "LOGOUT",
                     onClick = onLogout,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = RedLoss
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.ExitToApp,
-                        contentDescription = "Logout",
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                    Text(
-                        text = "Logout",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = true,
+                    isDestructive = true
+                )
             }
         }
 
@@ -754,13 +1358,6 @@ fun ProfileStatItem(label: String, value: String, color: Color) {
     }
 }
 
-data class MatchHistoryItem(
-    val opponent: String,
-    val result: String,
-    val score: String,
-    val color: Color
-)
-
 @Composable
 fun MatchHistoryRow(item: MatchHistoryItem) {
     Row(
@@ -784,7 +1381,7 @@ fun MatchHistoryRow(item: MatchHistoryItem) {
                 modifier = Modifier.padding(top = 2.dp)
             )
         }
-        
+
         Card(
             shape = RoundedCornerShape(8.dp),
             colors = CardDefaults.cardColors(
@@ -802,14 +1399,17 @@ fun MatchHistoryRow(item: MatchHistoryItem) {
     }
 }
 
-// ==================== SETTINGS SCREEN ====================
 @Composable
 fun ChangePasswordScreen(
     onBack: () -> Unit
 ) {
-    var currentPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    var newPasswordVisible by remember { mutableStateOf(false) }
+    var confirmPasswordVisible by remember { mutableStateOf(false) }
+
+    val passwordsMatch = newPassword == confirmPassword || confirmPassword.isEmpty()
+    val isPasswordValid = newPassword.length >= 6 || newPassword.isEmpty()
 
     Column(
         modifier = Modifier
@@ -818,101 +1418,73 @@ fun ChangePasswordScreen(
             .padding(horizontal = 24.dp)
             .padding(top = 40.dp, bottom = 100.dp)
     ) {
-        // Back button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp),
+                .padding(bottom = 32.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(
+                        color = DarkSlate.copy(alpha = 0.5f),
+                        shape = CircleShape
+                    )
+            ) {
                 Icon(
-                    imageVector = Icons.Filled.ArrowBack,
+                    imageVector = Icons.Default.ArrowBack,
                     contentDescription = "Back",
-                    tint = CyanPrimary,
-                    modifier = Modifier.size(28.dp)
+                    tint = GoldPrimary
                 )
             }
+            Spacer(modifier = Modifier.width(12.dp))
             Text(
-                text = "Change Password",
-                fontSize = 28.sp,
+                text = "CHANGE PASSWORD",
+                fontSize = 24.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = TextWhite,
-                modifier = Modifier.padding(start = 8.dp)
+                color = PearlWhite,
+                letterSpacing = 1.sp
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // Current Password Field
-        OutlinedTextField(
-            value = currentPassword,
-            onValueChange = { currentPassword = it },
-            label = { Text("Current Password", color = TextGray) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 20.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = TextWhite,
-                unfocusedTextColor = TextWhite,
-                focusedBorderColor = CyanPrimary,
-                unfocusedBorderColor = TextGray.copy(alpha = 0.3f)
-            ),
-            shape = RoundedCornerShape(12.dp)
-        )
-
-        // New Password Field
-        OutlinedTextField(
+        ElegantTextField(
             value = newPassword,
             onValueChange = { newPassword = it },
-            label = { Text("New Password", color = TextGray) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 20.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = TextWhite,
-                unfocusedTextColor = TextWhite,
-                focusedBorderColor = CyanPrimary,
-                unfocusedBorderColor = TextGray.copy(alpha = 0.3f)
-            ),
-            shape = RoundedCornerShape(12.dp)
+            placeholder = "New Password",
+            leadingIcon = Icons.Default.Lock,
+            isPassword = true,
+            passwordVisible = newPasswordVisible,
+            onTogglePasswordVisibility = { newPasswordVisible = !newPasswordVisible },
+            isError = !isPasswordValid,
+            errorMessage = if (!isPasswordValid) "Password must be at least 6 characters" else null
         )
 
-        // Confirm Password Field
-        OutlinedTextField(
+        Spacer(modifier = Modifier.height(20.dp))
+
+        ElegantTextField(
             value = confirmPassword,
             onValueChange = { confirmPassword = it },
-            label = { Text("Confirm Password", color = TextGray) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 32.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = TextWhite,
-                unfocusedTextColor = TextWhite,
-                focusedBorderColor = CyanPrimary,
-                unfocusedBorderColor = TextGray.copy(alpha = 0.3f)
-            ),
-            shape = RoundedCornerShape(12.dp)
+            placeholder = "Confirm Password",
+            leadingIcon = Icons.Default.Lock,
+            isPassword = true,
+            passwordVisible = confirmPasswordVisible,
+            onTogglePasswordVisibility = { confirmPasswordVisible = !confirmPasswordVisible },
+            isError = !passwordsMatch,
+            errorMessage = if (!passwordsMatch) "Passwords do not match" else null
         )
 
-        // Save Button
-        Button(
+        Spacer(modifier = Modifier.height(40.dp))
+
+        GoldenButton(
+            text = "SAVE CHANGES",
             onClick = { onBack() },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = CyanPrimary,
-                contentColor = DarkBackground
-            ),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Text(
-                text = "Save Changes",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+            modifier = Modifier.fillMaxWidth(),
+            enabled = newPassword.isNotBlank() && confirmPassword.isNotBlank() && passwordsMatch && isPasswordValid
+        )
     }
 }
 
@@ -943,7 +1515,7 @@ fun SettingsItem(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -973,7 +1545,7 @@ fun SettingsItem(
                 modifier = Modifier.padding(start = 16.dp)
             )
         }
-        
+
         Icon(
             imageVector = Icons.Filled.KeyboardArrowRight,
             contentDescription = "Navigate",
@@ -983,7 +1555,6 @@ fun SettingsItem(
     }
 }
 
-// ==================== GLASSMORPHISM BOTTOM NAV ====================
 @Composable
 fun GlassmorphismBottomNav(
     currentPage: BottomNavPage,
@@ -1095,166 +1666,19 @@ fun BottomNavItem(
     }
 }
 
-// ==================== ANIMATED BACKGROUND ====================
-@Composable
-fun MainMenuAnimatedBackground() {
-    val infiniteTransition = rememberInfiniteTransition(label = "particles")
-    
-    val animatedOffsets = remember {
-        List(6) { 
-            Pair(
-                (0..360).random().toFloat(),
-                (80..200).random().toFloat()
-            )
-        }
-    }
 
-    val animatedValues = List(6) { index ->
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(
-                    durationMillis = 25000 + index * 3000,
-                    easing = LinearEasing
-                )
-            ),
-            label = "particle$index"
-        )
-    }
-
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        animatedOffsets.forEachIndexed { index, (angle, radius) ->
-            val time = animatedValues[index].value + angle
-            
-            val x = size.width / 2 + cos(Math.toRadians(time.toDouble())).toFloat() * radius
-            val y = size.height / 2 + sin(Math.toRadians(time.toDouble())).toFloat() * radius
-            
-            drawCircle(
-                color = if (index % 2 == 0) PurpleAccent.copy(alpha = 0.2f) else CyanPrimary.copy(alpha = 0.15f),
-                radius = (10 + index * 3).toFloat(),
-                center = Offset(x, y)
-            )
-        }
-    }
-}
-
-// ==================== PREVIEWS ====================
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun MainMenuScreenPreview() {
     MainMenuScreen(
         userProfile = UserProfile(
             name = "John Debater",
-            email = "john@rhetorix.com",
+            email = "john@retrorix.com",
             dateOfBirth = "15/08/1995"
         ),
         userWins = 0,
         onModeSelected = {},
         onLogout = {},
         onDebug = {}
-    )
-}
-
-@Composable
-fun P2PUnlockDialog(
-    currentWins: Int,
-    onDismiss: () -> Unit
-) {
-    val difficulty = DifficultyLevel.PVP
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                imageVector = Icons.Filled.Lock,
-                contentDescription = "Locked",
-                tint = PurpleAccent,
-                modifier = Modifier.size(48.dp)
-            )
-        },
-        title = {
-            Text(
-                text = "⚔️ P2P Mode Locked",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-        },
-        text = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = difficulty.description,
-                    fontSize = 14.sp,
-                    color = TextGray,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-
-                // Progress indicator
-                Text(
-                    text = "Progress: $currentWins / ${difficulty.requiredWins} wins",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = PurpleAccent
-                )
-
-                // Progress bar
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
-                        .height(8.dp)
-                        .background(TextGray.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(currentWins.toFloat() / difficulty.requiredWins.toFloat())
-                            .fillMaxHeight()
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(PurpleAccent, CyanPrimary)
-                                ),
-                                RoundedCornerShape(4.dp)
-                            )
-                    )
-                }
-
-                Text(
-                    text = "Win ${difficulty.requiredWins - currentWins} more ${if (difficulty.requiredWins - currentWins == 1) "match" else "matches"} to challenge real players!",
-                    fontSize = 14.sp,
-                    color = TextGray,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 16.dp)
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "💡 Tip: Practice in AI modes to unlock P2P!",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = GreenWin,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = PurpleAccent,
-                    contentColor = TextWhite
-                )
-            ) {
-                Text("Got it!")
-            }
-        },
-        containerColor = DarkCard,
-        shape = RoundedCornerShape(24.dp)
     )
 }

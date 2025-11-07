@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp") version "2.0.21-1.0.28"
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.0.21"
 }
 
 android {
@@ -85,6 +86,15 @@ dependencies {
 
     // AndroidX Security (required by SDK)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Supabase for backend database
+    implementation(platform("io.github.jan-tennert.supabase:bom:3.0.2"))
+    implementation("io.github.jan-tennert.supabase:postgrest-kt")
+    implementation("io.github.jan-tennert.supabase:auth-kt")
+    implementation("io.github.jan-tennert.supabase:realtime-kt")
+
+    // DataStore for secure token storage
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     // Standard app dependencies
     implementation(libs.androidx.core.ktx)

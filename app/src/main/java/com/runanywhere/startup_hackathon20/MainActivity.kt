@@ -19,11 +19,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.runanywhere.startup_hackathon20.database.RhetorixDatabase
-import com.runanywhere.startup_hackathon20.database.UserEntity
 import com.runanywhere.startup_hackathon20.ui.theme.Startup_hackathon20Theme
 import com.runanywhere.startup_hackathon20.AuthViewModel
 import com.runanywhere.startup_hackathon20.DebateViewModel
+import com.runanywhere.startup_hackathon20.UserProfile
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -48,13 +47,12 @@ sealed class Screen {
     object DebateActive : Screen()
     object DebateResults : Screen()
     object ChangePassword : Screen()
-    object Debug : Screen()
 }
 
 @Composable
 fun AppNavigation() {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Auth) }
-    var currentUser by remember { mutableStateOf<UserEntity?>(null) }
+    var currentUser by remember { mutableStateOf<UserData?>(null) }
     var userId by remember { mutableStateOf<String?>(null) }
     
     // Add loading state
@@ -68,56 +66,45 @@ fun AppNavigation() {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // Check for existing user on app start
-    LaunchedEffect(Unit) {
-        scope.launch {
-            try {
-                val database = RhetorixDatabase.getDatabase(context)
-                val loggedInUser = database.userDao().getLoggedInUser()
-                
-                if (loggedInUser != null) {
-                    // User is already logged in
-                    currentUser = loggedInUser
-                    currentScreen = Screen.Home
-                    
-                    // Login user in DebateViewModel
-                    debateViewModel.loginUser(
-                        userId = loggedInUser.id,
-                        name = loggedInUser.name,
-                        email = loggedInUser.email,
-                        dateOfBirth = loggedInUser.dateOfBirth
-                    )
-                    userId = loggedInUser.id.toString()
-                    android.util.Log.d(
-                        "MainActivity",
-                        "✅ Auto-logged in user: ${loggedInUser.name}"
-                    )
-                } else {
-                    // No user logged in, stay on auth screen
-                    currentScreen = Screen.Auth
-                    android.util.Log.d("MainActivity", "ℹ️ No logged in user, showing auth screen")
-                }
-            } catch (e: Exception) {
-                // Error checking, default to auth screen
-                android.util.Log.e("MainActivity", "❌ Error checking logged in user", e)
-                currentScreen = Screen.Auth
-            } finally {
-                isInitializing = false
-            }
-        }
-    }
+    // Observe auth state from AuthViewModel (handles server auto-login)
+    val authState by authViewModel.authState.collectAsState()
 
-    // Set current user in DebateViewModel when user logs in
-    LaunchedEffect(currentUser) {
-        currentUser?.let { user ->
-            // Login user in DebateViewModel with database ID
-            debateViewModel.loginUser(
-                userId = user.id,
-                name = user.name,
-                email = user.email,
-                dateOfBirth = user.dateOfBirth
-            )
-            userId = user.id.toString()
+    LaunchedEffect(authState) {
+        when (val state = authState) {
+            is AuthState.Success -> {
+                // User is logged in (from server)
+                currentUser = state.user
+                currentScreen = Screen.Home
+
+                // Login user in DebateViewModel
+                debateViewModel.loginUser(
+                    userId = state.user.id.toLongOrNull() ?: 0L,
+                    name = "${state.user.firstName} ${state.user.lastName}",
+                    email = state.user.email,
+                    dateOfBirth = state.user.dateOfBirth
+                )
+                userId = state.user.id
+                isInitializing = false
+                android.util.Log.d("MainActivity", "✅ User logged in: ${state.user.firstName}")
+            }
+
+            is AuthState.Idle -> {
+                // No user logged in
+                currentScreen = Screen.Auth
+                isInitializing = false
+                android.util.Log.d("MainActivity", "ℹ️ No logged in user, showing auth screen")
+            }
+            is AuthState.Error -> {
+                // Error checking login
+                currentScreen = Screen.Auth
+                isInitializing = false
+                android.util.Log.e("MainActivity", "❌ Auth error: ${state.message}")
+            }
+
+            is AuthState.Loading -> {
+                // Still checking...
+                isInitializing = true
+            }
         }
     }
 
@@ -224,11 +211,15 @@ fun AppNavigation() {
             currentUser?.let { user ->
                 MainMenuScreen(
                     userProfile = UserProfile(
-                        name = user.name,
+                        name = "${user.firstName} ${user.lastName}",
                         email = user.email,
                         dateOfBirth = user.dateOfBirth
                     ),
                     userWins = user.wins,
+                    userLosses = user.losses,
+                    userTotalGames = user.totalGames,
+                    userAverageScore = user.averageScore,
+                    userPlayerId = user.playerId,
                     onModeSelected = { mode ->
                         when (mode) {
                             GameMode.PVP -> {
@@ -248,7 +239,7 @@ fun AppNavigation() {
                         currentScreen = Screen.Auth
                     },
                     onDebug = {
-                        currentScreen = Screen.Debug
+                        // Debug screen removed - view data in Supabase dashboard instead
                     }
                 )
             }
@@ -354,12 +345,6 @@ fun AppNavigation() {
                     currentScreen = Screen.Home
                 }
             )
-        }
-
-
-        // 9. DEBUG SCREEN
-        Screen.Debug -> {
-            DebugScreen(onBack = { currentScreen = Screen.Home })
         }
     }
 }
