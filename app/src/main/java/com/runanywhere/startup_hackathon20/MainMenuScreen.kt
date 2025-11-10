@@ -27,8 +27,12 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -109,13 +113,19 @@ fun QuickActionButton(
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
         label = "scale"
     )
+    
+    val elevation by animateDpAsState(
+        targetValue = if (isPressed) 4.dp else 12.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "elevation"
+    )
 
     Card(
         modifier = modifier
             .height(70.dp)
             .scale(scale)
             .shadow(
-                elevation = 12.dp,
+                elevation = elevation,
                 shape = RoundedCornerShape(16.dp),
                 spotColor = GoldPrimary.copy(alpha = 0.2f)
             )
@@ -126,11 +136,11 @@ fun QuickActionButton(
             ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = DarkSlate.copy(alpha = 0.6f)
+            containerColor = if (isPressed) DarkSlate.copy(alpha = 0.8f) else DarkSlate.copy(alpha = 0.6f)
         ),
         border = BorderStroke(
-            width = 1.dp,
-            color = GoldPrimary.copy(alpha = 0.3f)
+            width = if (isPressed) 2.dp else 1.dp,
+            color = if (isPressed) GoldPrimary.copy(alpha = 0.6f) else GoldPrimary.copy(alpha = 0.3f)
         )
     ) {
         Row(
@@ -790,9 +800,22 @@ fun HomeScreen(
 
 @Composable
 fun ElegantStatsCard(stats: UserStats) {
+    val infiniteTransition = rememberInfiniteTransition(label = "stats_pulse")
+
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .scale(pulseScale)
             .shadow(
                 elevation = 24.dp,
                 shape = RoundedCornerShape(24.dp),
@@ -886,6 +909,18 @@ fun GoldenGameModeCard(
         ),
         label = "scale"
     )
+    
+    val elevation by animateDpAsState(
+        targetValue = if (isPressed) 10.dp else 20.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "elevation"
+    )
+    
+    val borderWidth by animateDpAsState(
+        targetValue = if (isPressed) 3.dp else 0.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "border"
+    )
 
     Card(
         modifier = Modifier
@@ -893,7 +928,7 @@ fun GoldenGameModeCard(
             .height(160.dp)
             .scale(scale)
             .shadow(
-                elevation = 20.dp,
+                elevation = elevation,
                 shape = RoundedCornerShape(24.dp),
                 spotColor = if (isLocked) SilverGray.copy(alpha = 0.2f) else GoldPrimary.copy(alpha = 0.3f)
             )
@@ -905,7 +940,11 @@ fun GoldenGameModeCard(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color.Transparent
-        )
+        ),
+        border = if (!isLocked && borderWidth > 0.dp) BorderStroke(
+            width = borderWidth,
+            color = DeepBlack.copy(alpha = 0.3f)
+        ) else null
     ) {
         Box(
             modifier = Modifier
@@ -1159,7 +1198,7 @@ fun ProfileScreen(
                             modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Place,
+                                imageVector = Icons.Default.Add,
                                 contentDescription = "Copy ID",
                                 tint = GoldPrimary,
                                 modifier = Modifier.size(20.dp)
@@ -1561,6 +1600,18 @@ fun GlassmorphismBottomNav(
     onPageSelected: (BottomNavPage) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val animatedOffset by animateFloatAsState(
+        targetValue = when (currentPage) {
+            BottomNavPage.HOME -> 0f
+            BottomNavPage.PROFILE -> 1f
+        },
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "fluid_offset"
+    )
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -1579,32 +1630,82 @@ fun GlassmorphismBottomNav(
                 width = 1.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        CyanPrimary.copy(alpha = 0.3f),
-                        PurpleAccent.copy(alpha = 0.3f)
+                        GoldPrimary.copy(alpha = 0.5f),
+                        GoldPrimary.copy(alpha = 0.3f)
                     )
                 )
             )
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                BottomNavItem(
-                    icon = Icons.Filled.Home,
-                    label = "Home",
-                    isSelected = currentPage == BottomNavPage.HOME,
-                    onClick = { onPageSelected(BottomNavPage.HOME) }
-                )
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Animated fluid background indicator
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp)
+                ) {
+                    val itemWidth = size.width / 2
+                    val indicatorWidth = itemWidth * 0.8f
+                    val startX = (itemWidth - indicatorWidth) / 2 + (animatedOffset * itemWidth)
+                    
+                    // Draw fluid blob shape
+                    val path = Path().apply {
+                        val centerY = size.height / 2
+                        val radiusX = indicatorWidth / 2
+                        val radiusY = size.height / 2 - 4.dp.toPx()
+                        
+                        // Create a morphing blob effect
+                        val wobble1 = 0.1f * radiusX
+                        val wobble2 = 0.15f * radiusY
+                        
+                        addRoundRect(
+                            RoundRect(
+                                rect = Rect(
+                                    left = startX,
+                                    top = centerY - radiusY,
+                                    right = startX + indicatorWidth,
+                                    bottom = centerY + radiusY
+                                ),
+                                radiusX = 28.dp.toPx(),
+                                radiusY = 28.dp.toPx()
+                            )
+                        )
+                    }
+                    
+                    drawPath(
+                        path = path,
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                GoldDark.copy(alpha = 0.3f),
+                                GoldPrimary.copy(alpha = 0.4f),
+                                GoldLight.copy(alpha = 0.3f)
+                            ),
+                            startX = startX,
+                            endX = startX + indicatorWidth
+                        )
+                    )
+                }
 
-                BottomNavItem(
-                    icon = Icons.Filled.Person,
-                    label = "Profile",
-                    isSelected = currentPage == BottomNavPage.PROFILE,
-                    onClick = { onPageSelected(BottomNavPage.PROFILE) }
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BottomNavItem(
+                        icon = Icons.Filled.Home,
+                        label = "Home",
+                        isSelected = currentPage == BottomNavPage.HOME,
+                        onClick = { onPageSelected(BottomNavPage.HOME) }
+                    )
+
+                    BottomNavItem(
+                        icon = Icons.Filled.Person,
+                        label = "Profile",
+                        isSelected = currentPage == BottomNavPage.PROFILE,
+                        onClick = { onPageSelected(BottomNavPage.PROFILE) }
+                    )
+                }
             }
         }
     }
@@ -1627,7 +1728,7 @@ fun BottomNavItem(
     )
 
     val color by animateColorAsState(
-        targetValue = if (isSelected) CyanPrimary else TextGray,
+        targetValue = if (isSelected) GoldPrimary else TextGray,
         animationSpec = tween(300),
         label = "color"
     )

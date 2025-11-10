@@ -3,11 +3,13 @@ package com.runanywhere.startup_hackathon20
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,55 +18,91 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.runanywhere.startup_hackathon20.data.DifficultyLevel
+import kotlin.math.cos
+import kotlin.math.sin
 
-// Color Palette - Same as main page
-private val CyanPrimary = Color(0xFF00D9FF)
-private val CyanLight = Color(0xFF5FEDFF)
-private val PurpleAccent = Color(0xFF9D4EDD)
-private val DarkBackground = Color(0xFF0A0A0F)
-private val DarkSurface = Color(0xFF1A1A2E)
-private val DarkCard = Color(0xFF16213E)
+// Elegant Dark Theme Color Palette with Golden Accents
+private val DeepBlack = Color(0xFF0D0D12)
+private val RichBlack = Color(0xFF16161D)
+private val DarkSlate = Color(0xFF1E1E28)
+private val GoldPrimary = Color(0xFFD4AF37)
+private val GoldLight = Color(0xFFF4E6B8)
+private val GoldDark = Color(0xFFB8963C)
+private val AmberAccent = Color(0xFFFFB84D)
+private val CopperShine = Color(0xFFE8985E)
+private val SilverGray = Color(0xFF9BA4B5)
+private val PearlWhite = Color(0xFFF5F5F7)
+private val SoftWhite = Color(0xFFE8E8ED)
+private val ErrorRose = Color(0xFFFF6B6B)
+private val SuccessGreen = Color(0xFF51CF66)
+private val GreenWin = Color(0xFF4ADE80)
+private val EmeraldAccent = Color(0xFF10B981)
 private val TextWhite = Color(0xFFFFFFFF)
 private val TextGray = Color(0xFFB0B0B0)
-private val GreenAccent = Color(0xFF4ADE80)
-private val OrangeAccent = Color(0xFFFB923C)
-private val RedAccent = Color(0xFFF87171)
 
 @Composable
 fun AIPracticeModeScreen(
-    userWins: Int = 0, // Pass user's total wins
+    userWins: Int = 0,
     onDifficultySelected: (GameMode) -> Unit,
     onBack: () -> Unit
 ) {
     var showUnlockDialog by remember { mutableStateOf<DifficultyLevel?>(null) }
+    var selectedGameMode by remember { mutableStateOf<GameMode?>(null) }
+    var showModelDownloadDialog by remember { mutableStateOf(false) }
+    
+    // Get DebateViewModel to access model management
+    val debateViewModel: DebateViewModel = viewModel()
+    val availableModels by debateViewModel.availableModels.collectAsState()
+    val downloadProgress by debateViewModel.downloadProgress.collectAsState()
+    val currentModelId by debateViewModel.currentModelId.collectAsState()
+    val statusMessage by debateViewModel.statusMessage.collectAsState()
+
+    // Check if required model is downloaded and loaded
+    LaunchedEffect(selectedGameMode, availableModels, currentModelId) {
+        selectedGameMode?.let { mode ->
+            val requiredModelName = when (mode) {
+                GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"
+                GameMode.AI_INTERMEDIATE, GameMode.AI_ADVANCED -> "Qwen 2.5 3B Instruct Q6_K"
+                else -> null
+            }
+            
+            requiredModelName?.let { modelName ->
+                val model = availableModels.find { it.name == modelName }
+                if (model != null && model.isDownloaded && currentModelId == model.id) {
+                    // Model is ready! Proceed with debate
+                    showModelDownloadDialog = false
+                    onDifficultySelected(mode)
+                    selectedGameMode = null // Reset
+                }
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        DarkBackground,
-                        DarkSurface,
-                        DarkBackground
-                    )
-                )
-            )
+            .background(DeepBlack)
     ) {
-        // Animated Background
-        AIPracticeBackgroundParticles()
+        // Animated luxury background
+        AnimatedLuxuryBackground()
 
         Column(
             modifier = Modifier
@@ -79,136 +117,136 @@ fun AIPracticeModeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 32.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            color = DarkSlate.copy(alpha = 0.5f),
+                            shape = CircleShape
+                        )
+                ) {
                     Icon(
                         imageVector = Icons.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = CyanPrimary,
-                        modifier = Modifier.size(28.dp)
+                        tint = GoldPrimary,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
                 
-                Text(
-                    text = "Retrorix",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = CyanPrimary,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center
-                )
+                Spacer(modifier = Modifier.width(16.dp))
                 
-                // Spacer to balance the layout
-                Spacer(modifier = Modifier.size(28.dp))
+                // Animated Retrorix Logo
+                AnimatedRetrorixLogo()
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Title Section
-            Text(
-                text = "AI Practice Arena",
-                fontSize = 32.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = TextWhite,
-                textAlign = TextAlign.Center
+            // Title Section with shimmer effect
+            ShimmerText(
+                text = "AI PRACTICE",
+                fontSize = 34.sp
             )
             
             Spacer(modifier = Modifier.height(12.dp))
             
             Text(
-                text = "Choose your challenge level",
+                text = "Choose Your Challenge Level",
                 fontSize = 16.sp,
-                color = TextGray,
+                color = SilverGray,
+                letterSpacing = 1.sp,
                 textAlign = TextAlign.Center
             )
 
-            // Stats Badge
-            Card(
-                modifier = Modifier
-                    .padding(top = 16.dp)
-                    .shadow(4.dp, RoundedCornerShape(12.dp)),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = DarkCard.copy(alpha = 0.7f)
-                )
-            ) {
-                Text(
-                    text = "🏆 Total Wins: $userWins",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = GreenAccent,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
+            // Stats Badge with animation
+            AnimatedStatsBadge(userWins = userWins)
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
             // Fresh Mind Mode (Beginner) - ALWAYS UNLOCKED
             val beginnerUnlocked = DifficultyLevel.BEGINNER.isUnlocked(userWins)
-            AIDifficultyCard(
+            ElegantDifficultyCard(
                 title = "Fresh Mind",
                 icon = Icons.Filled.Face,
-                gradient = listOf(GreenAccent, Color(0xFF34D399)),
+                gradient = listOf(GreenWin, EmeraldAccent, SuccessGreen),
                 description = "Perfect for beginners",
-                subDescription = "Build your confidence with simple debates and gentle AI responses",
-                difficulty = "Easy",
+                subDescription = "Build your confidence with simple debates",
+                difficulty = "EASY",
                 isLocked = !beginnerUnlocked,
                 requiredWins = DifficultyLevel.BEGINNER.requiredWins,
                 currentWins = userWins,
-                modelInfo = "Using: Llama 1B",
+                modelInfo = "Llama 1B Model",
                 onClick = {
                     if (beginnerUnlocked) {
-                        onDifficultySelected(GameMode.AI_BEGINNER)
+                        selectedGameMode = GameMode.AI_BEGINNER
+                        val requiredModel = availableModels.find { it.name == "Llama 3.2 1B Instruct Q6_K" }
+                        if (requiredModel == null || !requiredModel.isDownloaded || currentModelId != requiredModel.id) {
+                            showModelDownloadDialog = true
+                        } else {
+                            onDifficultySelected(GameMode.AI_BEGINNER)
+                        }
                     } else {
                         showUnlockDialog = DifficultyLevel.BEGINNER
                     }
                 }
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Thinker Mode (Intermediate) - UNLOCK AT 2 WINS
             val intermediateUnlocked = DifficultyLevel.INTERMEDIATE.isUnlocked(userWins)
-            AIDifficultyCard(
+            ElegantDifficultyCard(
                 title = "Thinker",
                 icon = Icons.Filled.Build,
-                gradient = listOf(CyanPrimary, CyanLight),
+                gradient = listOf(GoldPrimary, GoldLight, AmberAccent),
                 description = "Ready to level up",
-                subDescription = "Face moderate challenges and sharpen your argumentative skills",
-                difficulty = "Medium",
+                subDescription = "Sharpen your argumentative skills",
+                difficulty = "MEDIUM",
                 isLocked = !intermediateUnlocked,
                 requiredWins = DifficultyLevel.INTERMEDIATE.requiredWins,
                 currentWins = userWins,
-                modelInfo = "Using: Qwen 3B (Advanced AI)",
+                modelInfo = "Qwen 3B Advanced",
                 onClick = {
                     if (intermediateUnlocked) {
-                        onDifficultySelected(GameMode.AI_INTERMEDIATE)
+                        selectedGameMode = GameMode.AI_INTERMEDIATE
+                        val requiredModel = availableModels.find { it.name == "Qwen 2.5 3B Instruct Q6_K" }
+                        if (requiredModel == null || !requiredModel.isDownloaded || currentModelId != requiredModel.id) {
+                            showModelDownloadDialog = true
+                        } else {
+                            onDifficultySelected(GameMode.AI_INTERMEDIATE)
+                        }
                     } else {
                         showUnlockDialog = DifficultyLevel.INTERMEDIATE
                     }
                 }
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Speaker Mode (Advanced) - UNLOCK AT 5 WINS
             val advancedUnlocked = DifficultyLevel.ADVANCED.isUnlocked(userWins)
-            AIDifficultyCard(
+            ElegantDifficultyCard(
                 title = "Speaker",
                 icon = Icons.Filled.Star,
-                gradient = listOf(OrangeAccent, Color(0xFFF59E0B)),
+                gradient = listOf(CopperShine, AmberAccent, Color(0xFFFF9500)),
                 description = "Master debater challenge",
-                subDescription = "Test your limits against advanced AI with complex arguments",
-                difficulty = "Hard",
+                subDescription = "Test your limits with complex arguments",
+                difficulty = "HARD",
                 isLocked = !advancedUnlocked,
                 requiredWins = DifficultyLevel.ADVANCED.requiredWins,
                 currentWins = userWins,
-                modelInfo = "Using: Qwen 3B (Maximum Difficulty)",
+                modelInfo = "Qwen 3B Maximum",
                 onClick = {
                     if (advancedUnlocked) {
-                        onDifficultySelected(GameMode.AI_ADVANCED)
+                        selectedGameMode = GameMode.AI_ADVANCED
+                        val requiredModel = availableModels.find { it.name == "Qwen 2.5 3B Instruct Q6_K" }
+                        if (requiredModel == null || !requiredModel.isDownloaded || currentModelId != requiredModel.id) {
+                            showModelDownloadDialog = true
+                        } else {
+                            onDifficultySelected(GameMode.AI_ADVANCED)
+                        }
                     } else {
                         showUnlockDialog = DifficultyLevel.ADVANCED
                     }
@@ -218,51 +256,138 @@ fun AIPracticeModeScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             // Info Card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(8.dp, RoundedCornerShape(20.dp)),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = DarkCard.copy(alpha = 0.7f)
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Info,
-                        contentDescription = "Info",
-                        tint = CyanPrimary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(
-                        text = "Win matches to unlock higher difficulty levels! The AI evolves as you improve.",
-                        fontSize = 14.sp,
-                        color = TextGray,
-                        lineHeight = 20.sp
-                    )
-                }
-            }
+            ElegantInfoCard()
         }
 
         // Unlock Dialog
         showUnlockDialog?.let { difficulty ->
-            UnlockDialog(
+            ElegantUnlockDialog(
                 difficulty = difficulty,
                 currentWins = userWins,
                 onDismiss = { showUnlockDialog = null }
+            )
+        }
+        
+        // Model Download Dialog
+        if (showModelDownloadDialog && selectedGameMode != null) {
+            ModelDownloadDialog(
+                gameMode = selectedGameMode!!,
+                availableModels = availableModels,
+                downloadProgress = downloadProgress,
+                currentModelId = currentModelId,
+                statusMessage = statusMessage,
+                onDownload = { modelId -> debateViewModel.downloadModel(modelId) },
+                onLoad = { modelId -> debateViewModel.loadModel(modelId) },
+                onRefresh = { debateViewModel.refreshModels() },
+                onCancel = { 
+                    showModelDownloadDialog = false
+                    selectedGameMode = null
+                }
             )
         }
     }
 }
 
 @Composable
-fun AIDifficultyCard(
+fun AnimatedRetrorixLogo() {
+    val infiniteTransition = rememberInfiniteTransition(label = "logo_rotation")
+    
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(20000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+    
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        // Rotating ring
+        Canvas(
+            modifier = Modifier
+                .size(50.dp)
+                .rotate(rotation)
+        ) {
+            drawCircle(
+                brush = Brush.sweepGradient(
+                    colors = listOf(
+                        GoldPrimary,
+                        GoldLight,
+                        AmberAccent,
+                        GoldPrimary
+                    )
+                ),
+                radius = size.width / 2,
+                style = Stroke(width = 2.dp.toPx())
+            )
+        }
+        
+        // Center text
+        Text(
+            text = "R",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = GoldPrimary
+        )
+    }
+}
+
+@Composable
+fun AnimatedStatsBadge(userWins: Int) {
+    val infiniteTransition = rememberInfiniteTransition(label = "badge_pulse")
+    
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+    
+    Card(
+        modifier = Modifier
+            .padding(top = 16.dp)
+            .scale(scale)
+            .shadow(
+                elevation = 12.dp,
+                shape = RoundedCornerShape(16.dp),
+                spotColor = GoldPrimary.copy(alpha = 0.3f)
+            ),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = DarkSlate.copy(alpha = 0.8f)
+        ),
+        border = BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.4f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Star,
+                contentDescription = "Trophy",
+                tint = GoldPrimary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Total Wins: $userWins",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = GoldPrimary
+            )
+        }
+    }
+}
+
+@Composable
+fun ElegantDifficultyCard(
     title: String,
     icon: ImageVector,
     gradient: List<Color>,
@@ -278,20 +403,36 @@ fun AIDifficultyCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.95f else 1f,
+        targetValue = if (isPressed) 0.97f else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
         ),
         label = "scale"
     )
+    
+    val elevation by animateDpAsState(
+        targetValue = if (isPressed) 10.dp else 20.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "elevation"
+    )
+    
+    val borderWidth by animateDpAsState(
+        targetValue = if (isPressed) 3.dp else 0.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "border"
+    )
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (isLocked) 160.dp else 200.dp)
+            .height(if (isLocked) 160.dp else 210.dp)
             .scale(scale)
-            .shadow(16.dp, RoundedCornerShape(24.dp))
+            .shadow(
+                elevation = elevation,
+                shape = RoundedCornerShape(24.dp),
+                spotColor = if (isLocked) SilverGray.copy(alpha = 0.2f) else GoldPrimary.copy(alpha = 0.3f)
+            )
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -300,7 +441,11 @@ fun AIDifficultyCard(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color.Transparent
-        )
+        ),
+        border = if (!isLocked && borderWidth > 0.dp) BorderStroke(
+            width = borderWidth,
+            color = DeepBlack.copy(alpha = 0.3f)
+        ) else null
     ) {
         Box(
             modifier = Modifier
@@ -309,8 +454,8 @@ fun AIDifficultyCard(
                     if (isLocked) {
                         Brush.horizontalGradient(
                             listOf(
-                                TextGray.copy(alpha = 0.3f),
-                                TextGray.copy(alpha = 0.2f)
+                                SilverGray.copy(alpha = 0.3f),
+                                SilverGray.copy(alpha = 0.2f)
                             )
                         )
                     } else {
@@ -321,13 +466,13 @@ fun AIDifficultyCard(
             // Decorative circles
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawCircle(
-                    color = Color.White.copy(alpha = if (isLocked) 0.05f else 0.1f),
-                    radius = 100f,
+                    color = Color.White.copy(alpha = if (isLocked) 0.03f else 0.15f),
+                    radius = 120f,
                     center = Offset(size.width * 0.85f, size.height * 0.3f)
                 )
                 drawCircle(
-                    color = Color.White.copy(alpha = if (isLocked) 0.02f else 0.05f),
-                    radius = 60f,
+                    color = Color.White.copy(alpha = if (isLocked) 0.02f else 0.08f),
+                    radius = 80f,
                     center = Offset(size.width * 0.15f, size.height * 0.7f)
                 )
             }
@@ -337,25 +482,24 @@ fun AIDifficultyCard(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f)),
+                        .background(DeepBlack.copy(alpha = 0.5f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Lock,
                             contentDescription = "Locked",
-                            tint = TextWhite,
-                            modifier = Modifier.size(48.dp)
+                            tint = PearlWhite.copy(alpha = 0.7f),
+                            modifier = Modifier.size(56.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Win ${requiredWins - currentWins} more ${if (requiredWins - currentWins == 1) "match" else "matches"} to unlock",
-                            fontSize = 14.sp,
+                            text = "Win ${requiredWins - currentWins} more",
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = TextWhite,
+                            color = PearlWhite.copy(alpha = 0.9f),
                             textAlign = TextAlign.Center
                         )
                     }
@@ -374,31 +518,33 @@ fun AIDifficultyCard(
                 ) {
                     // Difficulty Badge
                     Surface(
-                        color = Color.White.copy(alpha = if (isLocked) 0.1f else 0.25f),
+                        color = DeepBlack.copy(alpha = if (isLocked) 0.3f else 0.4f),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.padding(bottom = 8.dp)
                     ) {
                         Text(
                             text = difficulty,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            fontWeight = FontWeight.ExtraBold,
+                            color = PearlWhite.copy(alpha = if (isLocked) 0.6f else 1f),
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }
 
                     Text(
                         text = title,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite.copy(alpha = if (isLocked) 0.5f else 1f)
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (isLocked) PearlWhite.copy(alpha = 0.5f) else DeepBlack,
+                        letterSpacing = 0.5.sp
                     )
                     
                     Text(
                         text = description,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TextWhite.copy(alpha = if (isLocked) 0.4f else 0.9f),
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isLocked) PearlWhite.copy(alpha = 0.4f) else DeepBlack.copy(alpha = 0.85f),
                         modifier = Modifier.padding(top = 4.dp)
                     )
 
@@ -406,24 +552,35 @@ fun AIDifficultyCard(
                         Text(
                             text = subDescription,
                             fontSize = 12.sp,
-                            color = TextWhite.copy(alpha = 0.75f),
+                            color = DeepBlack.copy(alpha = 0.7f),
                             lineHeight = 16.sp,
                             modifier = Modifier.padding(top = 6.dp)
                         )
 
-                        // Model Info
+                        // Model Info Badge
                         Surface(
-                            color = Color.White.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.padding(top = 8.dp)
+                            color = DeepBlack.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(top = 10.dp)
                         ) {
-                            Text(
-                                text = modelInfo,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = TextWhite.copy(alpha = 0.9f),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Build,
+                                    contentDescription = "AI Model",
+                                    tint = DeepBlack.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = modelInfo,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = DeepBlack.copy(alpha = 0.8f)
+                                )
+                            }
                         }
                     }
                 }
@@ -432,9 +589,9 @@ fun AIDifficultyCard(
 
                 // Icon
                 Icon(
-                    imageVector = if (isLocked) Icons.Filled.Lock else icon,
+                    imageVector = icon,
                     contentDescription = title,
-                    tint = TextWhite.copy(alpha = if (isLocked) 0.5f else 1f),
+                    tint = if (isLocked) PearlWhite.copy(alpha = 0.5f) else DeepBlack.copy(alpha = 0.9f),
                     modifier = Modifier.size(56.dp)
                 )
             }
@@ -443,57 +600,136 @@ fun AIDifficultyCard(
 }
 
 @Composable
-fun UnlockDialog(
+fun ElegantInfoCard() {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 16.dp,
+                shape = RoundedCornerShape(20.dp),
+                spotColor = GoldPrimary.copy(alpha = 0.2f)
+            ),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = DarkSlate.copy(alpha = 0.7f)
+        ),
+        border = BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.2f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Info,
+                contentDescription = "Info",
+                tint = GoldPrimary,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = "Progressive Unlock System",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PearlWhite
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Win matches to unlock higher difficulty levels. The AI evolves as you improve!",
+                    fontSize = 13.sp,
+                    color = SilverGray,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ElegantUnlockDialog(
     difficulty: DifficultyLevel,
     currentWins: Int,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                imageVector = Icons.Filled.Lock,
-                contentDescription = "Locked",
-                tint = OrangeAccent,
-                modifier = Modifier.size(48.dp)
-            )
-        },
-        title = {
-            Text(
-                text = "${difficulty.displayName} Mode Locked",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-        },
-        text = {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(
+                    elevation = 32.dp,
+                    shape = RoundedCornerShape(28.dp),
+                    spotColor = GoldPrimary.copy(alpha = 0.3f)
+                ),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = DarkSlate
+            ),
+            border = BorderStroke(2.dp, GoldPrimary.copy(alpha = 0.3f))
+        ) {
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = SilverGray
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "Locked",
+                    tint = GoldPrimary,
+                    modifier = Modifier.size(64.dp)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "🔒 ${difficulty.displayName.uppercase()} LOCKED",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = PearlWhite,
+                    letterSpacing = 1.sp,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 Text(
                     text = difficulty.description,
                     fontSize = 14.sp,
-                    color = TextGray,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    color = SilverGray,
+                    textAlign = TextAlign.Center
                 )
 
-                // Progress indicator
+                Spacer(modifier = Modifier.height(24.dp))
+
                 Text(
                     text = "Progress: $currentWins / ${difficulty.requiredWins} wins",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
-                    color = CyanPrimary
+                    color = GoldPrimary
                 )
 
-                // Progress bar
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 12.dp)
                         .height(8.dp)
-                        .background(TextGray.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                        .background(SilverGray.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
                 ) {
                     Box(
                         modifier = Modifier
@@ -501,82 +737,626 @@ fun UnlockDialog(
                             .fillMaxHeight()
                             .background(
                                 Brush.horizontalGradient(
-                                    listOf(CyanPrimary, GreenAccent)
+                                    listOf(GoldDark, GoldPrimary, GoldLight)
                                 ),
                                 RoundedCornerShape(4.dp)
                             )
                     )
                 }
 
+                Spacer(modifier = Modifier.height(20.dp))
+
                 Text(
                     text = "Win ${difficulty.requiredWins - currentWins} more ${if (difficulty.requiredWins - currentWins == 1) "match" else "matches"} to unlock!",
                     fontSize = 14.sp,
-                    color = TextGray,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 16.dp)
+                    color = SoftWhite,
+                    textAlign = TextAlign.Center
                 )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(0.dp),
+                    shape = RoundedCornerShape(28.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        GoldDark,
+                                        GoldPrimary,
+                                        GoldLight
+                                    )
+                                ),
+                                shape = RoundedCornerShape(28.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "GOT IT!",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = DeepBlack,
+                            letterSpacing = 2.sp
+                        )
+                    }
+                }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = CyanPrimary,
-                    contentColor = DarkBackground
-                )
-            ) {
-                Text("Got it!")
-            }
-        },
-        containerColor = DarkCard,
-        shape = RoundedCornerShape(24.dp)
-    )
+        }
+    }
 }
 
 // ==================== ANIMATED BACKGROUND ====================
+// AnimatedLuxuryBackground and ShimmerText are imported from AuthScreen.kt
+
+// ==================== MODEL DOWNLOAD DIALOG ===================
 @Composable
-fun AIPracticeBackgroundParticles() {
-    val infiniteTransition = rememberInfiniteTransition(label = "particles")
-
-    val animatedOffsets = remember {
-        List(6) {
-            Pair(
-                (0..360).random().toFloat(),
-                (80..200).random().toFloat()
-            )
-        }
+fun ModelDownloadDialog(
+    gameMode: GameMode,
+    availableModels: List<com.runanywhere.sdk.models.ModelInfo>,
+    downloadProgress: Float?,
+    currentModelId: String?,
+    statusMessage: String,
+    onDownload: (String) -> Unit,
+    onLoad: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onCancel: () -> Unit
+) {
+    // Determine required model name
+    val requiredModelName = when (gameMode) {
+        GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"
+        GameMode.AI_INTERMEDIATE, GameMode.AI_ADVANCED -> "Qwen 2.5 3B Instruct Q6_K"
+        else -> ""
     }
+    
+    val requiredModel = availableModels.find { it.name == requiredModelName }
+    val isModelReady = requiredModel != null && requiredModel.isDownloaded && currentModelId == requiredModel.id
+    val isDownloading = downloadProgress != null
+    
+    // Pulse animation for the dialog
+    val infiniteTransition = rememberInfiniteTransition(label = "dialog_pulse")
+    val borderAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "border_pulse"
+    )
 
-    val animatedValues = List(6) { index ->
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(
-                    durationMillis = 25000 + index * 3000,
-                    easing = LinearEasing
-                )
-            ),
-            label = "particle$index"
+    Dialog(
+        onDismissRequest = { if (isModelReady) onCancel() },
+        properties = DialogProperties(
+            dismissOnBackPress = isModelReady,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false
         )
-    }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DeepBlack.copy(alpha = 0.95f)),
+            contentAlignment = Alignment.Center
+        ) {
+            // Animated background circles
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            GoldPrimary.copy(alpha = 0.1f),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width * 0.3f, size.height * 0.3f),
+                        radius = 300f
+                    )
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            AmberAccent.copy(alpha = 0.08f),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width * 0.7f, size.height * 0.7f),
+                        radius = 400f
+                    )
+                )
+            }
 
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        animatedOffsets.forEachIndexed { index, (angle, radius) ->
-            val time = animatedValues[index].value + angle
-
-            val x =
-                size.width / 2 + kotlin.math.cos(Math.toRadians(time.toDouble())).toFloat() * radius
-            val y = size.height / 2 + kotlin.math.sin(Math.toRadians(time.toDouble()))
-                .toFloat() * radius
-
-            drawCircle(
-                color = if (index % 2 == 0) PurpleAccent.copy(alpha = 0.2f) else CyanPrimary.copy(
-                    alpha = 0.15f
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .fillMaxHeight(0.75f)
+                    .shadow(
+                        elevation = 32.dp,
+                        shape = RoundedCornerShape(32.dp),
+                        spotColor = GoldPrimary.copy(alpha = 0.4f)
+                    ),
+                shape = RoundedCornerShape(32.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = RichBlack
                 ),
-                radius = (10 + index * 3).toFloat(),
-                center = Offset(x, y)
-            )
+                border = BorderStroke(2.dp, GoldPrimary.copy(alpha = borderAlpha))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Close button (only visible when model is ready)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        if (isModelReady) {
+                            IconButton(
+                                onClick = onCancel,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(
+                                        color = DarkSlate.copy(alpha = 0.5f),
+                                        shape = CircleShape
+                                    )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close",
+                                    tint = GoldPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Icon with rotating ring
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(100.dp)
+                    ) {
+                        // Rotating ring
+                        val rotation by infiniteTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 360f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(3000, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "ring_rotation"
+                        )
+                        
+                        Canvas(
+                            modifier = Modifier
+                                .size(100.dp)
+                                .rotate(rotation)
+                        ) {
+                            drawCircle(
+                                brush = Brush.sweepGradient(
+                                    colors = listOf(
+                                        GoldPrimary,
+                                        AmberAccent,
+                                        GoldLight,
+                                        GoldPrimary
+                                    )
+                                ),
+                                radius = size.width / 2,
+                                style = Stroke(width = 3.dp.toPx())
+                            )
+                        }
+                        
+                        Icon(
+                            imageVector = if (isModelReady) Icons.Default.CheckCircle else Icons.Filled.Build,
+                            contentDescription = "Model Status",
+                            tint = if (isModelReady) SuccessGreen else GoldPrimary,
+                            modifier = Modifier.size(50.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Title
+                    Text(
+                        text = if (isModelReady) "🎉 MODEL READY!" else "🤖 AI MODEL REQUIRED",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (isModelReady) SuccessGreen else GoldPrimary,
+                        letterSpacing = 1.sp,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Description
+                    Text(
+                        text = if (isModelReady) 
+                            "The AI model is loaded and ready! You can now start your debate." 
+                        else 
+                            "To debate with AI, you need to download the required model first.",
+                        fontSize = 15.sp,
+                        color = SilverGray,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 22.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    // Model Info Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = DarkSlate.copy(alpha = 0.6f)
+                        ),
+                        border = BorderStroke(1.dp, GoldPrimary.copy(alpha = 0.3f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Model",
+                                    tint = GoldPrimary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Required Model",
+                                        fontSize = 13.sp,
+                                        color = SilverGray,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = requiredModelName,
+                                        fontSize = 16.sp,
+                                        color = PearlWhite,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            if (requiredModel != null) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                // Status indicator
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(
+                                                color = when {
+                                                    isModelReady -> SuccessGreen
+                                                    requiredModel.isDownloaded -> AmberAccent
+                                                    else -> ErrorRose
+                                                },
+                                                shape = CircleShape
+                                            )
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = when {
+                                            isModelReady -> "✓ Downloaded & Loaded"
+                                            requiredModel.isDownloaded -> "✓ Downloaded (needs loading)"
+                                            isDownloading -> "Downloading..."
+                                            else -> "Not downloaded"
+                                        },
+                                        fontSize = 14.sp,
+                                        color = when {
+                                            isModelReady -> SuccessGreen
+                                            requiredModel.isDownloaded -> AmberAccent
+                                            else -> ErrorRose
+                                        },
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+
+                                // Download progress
+                                if (isDownloading) {
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    
+                                    LinearProgressIndicator(
+                                        progress = { downloadProgress ?: 0f },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(8.dp)
+                                            .clip(RoundedCornerShape(4.dp)),
+                                        color = GoldPrimary,
+                                        trackColor = DarkSlate,
+                                    )
+                                    
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    
+                                    Text(
+                                        text = "${((downloadProgress ?: 0f) * 100).toInt()}% complete",
+                                        fontSize = 13.sp,
+                                        color = GoldPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "⚠️ Model not found. Please refresh.",
+                                    fontSize = 14.sp,
+                                    color = ErrorRose
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Status Message
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = DarkSlate.copy(alpha = 0.4f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "Info",
+                                tint = SilverGray,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = statusMessage,
+                                fontSize = 13.sp,
+                                color = SilverGray,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    // Action Buttons
+                    if (requiredModel != null) {
+                        when {
+                            isModelReady -> {
+                                // Start Debate Button
+                                Button(
+                                    onClick = onCancel,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color.Transparent
+                                    ),
+                                    contentPadding = PaddingValues(0.dp),
+                                    shape = RoundedCornerShape(28.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                brush = Brush.horizontalGradient(
+                                                    colors = listOf(
+                                                        SuccessGreen,
+                                                        EmeraldAccent
+                                                    )
+                                                ),
+                                                shape = RoundedCornerShape(28.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayArrow,
+                                                contentDescription = "Start",
+                                                tint = DeepBlack,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "START DEBATE",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = DeepBlack,
+                                                letterSpacing = 2.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            requiredModel.isDownloaded -> {
+                                // Load Model Button
+                                Button(
+                                    onClick = { onLoad(requiredModel.id) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp),
+                                    enabled = !isDownloading,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color.Transparent,
+                                        disabledContainerColor = Color.Transparent
+                                    ),
+                                    contentPadding = PaddingValues(0.dp),
+                                    shape = RoundedCornerShape(28.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                brush = Brush.horizontalGradient(
+                                                    colors = listOf(
+                                                        GoldDark,
+                                                        GoldPrimary,
+                                                        GoldLight
+                                                    )
+                                                ),
+                                                shape = RoundedCornerShape(28.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Load",
+                                                tint = DeepBlack,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "LOAD MODEL",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = DeepBlack,
+                                                letterSpacing = 2.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            else -> {
+                                // Download Model Button
+                                Button(
+                                    onClick = { onDownload(requiredModel.id) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp),
+                                    enabled = !isDownloading,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color.Transparent,
+                                        disabledContainerColor = Color.Transparent
+                                    ),
+                                    contentPadding = PaddingValues(0.dp),
+                                    shape = RoundedCornerShape(28.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                brush = Brush.horizontalGradient(
+                                                    colors = if (isDownloading)
+                                                        listOf(SilverGray, SilverGray)
+                                                    else
+                                                        listOf(
+                                                            GoldDark,
+                                                            GoldPrimary,
+                                                            GoldLight
+                                                        )
+                                                ),
+                                                shape = RoundedCornerShape(28.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isDownloading) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(20.dp),
+                                                    color = DeepBlack,
+                                                    strokeWidth = 2.dp
+                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Text(
+                                                    text = "DOWNLOADING...",
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = DeepBlack,
+                                                    letterSpacing = 2.sp
+                                                )
+                                            }
+                                        } else {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Build,
+                                                    contentDescription = "Download",
+                                                    tint = DeepBlack,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "DOWNLOAD MODEL",
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = DeepBlack,
+                                                    letterSpacing = 2.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Refresh Button
+                    OutlinedButton(
+                        onClick = onRefresh,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        enabled = !isDownloading,
+                        shape = RoundedCornerShape(28.dp),
+                        border = BorderStroke(2.dp, GoldPrimary.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = GoldPrimary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "REFRESH MODELS",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.5.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Cancel Button (only when not downloading)
+                    if (!isDownloading) {
+                        TextButton(
+                            onClick = onCancel,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Cancel",
+                                fontSize = 15.sp,
+                                color = TextGray
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -586,7 +1366,7 @@ fun AIPracticeBackgroundParticles() {
 @Composable
 fun AIPracticeModeScreenPreview() {
     AIPracticeModeScreen(
-        userWins = 1, // Only 1 win - Intermediate and Advanced locked
+        userWins = 1,
         onDifficultySelected = {},
         onBack = {}
     )
