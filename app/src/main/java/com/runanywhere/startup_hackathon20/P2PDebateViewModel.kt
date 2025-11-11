@@ -94,6 +94,45 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
     private var turnPollJob: Job? = null
     private var statusPollJob: Job? = null
 
+    // Track current model ID for reloading
+    private val _currentModelId = MutableStateFlow<String?>(null)
+
+    /**
+     * CRITICAL FIX: Reload model to clear KV cache before generation
+     * This prevents sequence position mismatches in llama-android
+     */
+    private suspend fun reloadModelForFreshGeneration(): Boolean {
+        // Try to get model ID from DebateViewModel's loaded model
+        // or use a known model name
+        return try {
+            Log.d(TAG, "🔄 Reloading model to clear KV cache...")
+
+            // Get the Llama model ID (assuming it's loaded)
+            val models = com.runanywhere.sdk.public.extensions.listAvailableModels()
+            val llamaModel = models.find { it.name.contains("Llama 3.2 1B") }
+
+            if (llamaModel == null) {
+                Log.w(TAG, "⚠️ Could not find loaded model for reload")
+                return false
+            }
+
+            _currentModelId.value = llamaModel.id
+            val success = RunAnywhere.loadModel(llamaModel.id)
+
+            if (success) {
+                Log.d(TAG, "✅ Model reloaded successfully, KV cache cleared")
+                // Small delay to ensure model is ready
+                delay(500)
+            } else {
+                Log.e(TAG, "❌ Failed to reload model")
+            }
+            success
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error reloading model", e)
+            false
+        }
+    }
+
     /**
      * Initialize P2P debate session
      * Called after match is found
@@ -357,6 +396,11 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
                 speaker = speaker,
                 turnNumber = turnNumber
             )
+
+            // Reload model before judging to clear KV cache
+            if (!reloadModelForFreshGeneration()) {
+                Log.e(TAG, "❌ Model reload failed, judging with existing model...")
+            }
 
             // Use AI to judge (streaming API)
             val judgeResponse = StringBuilder()

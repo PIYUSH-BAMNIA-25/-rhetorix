@@ -60,25 +60,19 @@ class MyApplication : Application() {
 
     private suspend fun registerModels() {
         try {
-            // SINGLE MODEL: Qwen 2.5 3B (2.3 GB)
-            // Used for: ALL difficulty levels (Beginner, Intermediate, Advanced, P2P)
-            // This model provides excellent reasoning capabilities across all modes
+            // === REGISTER AI MODELS ===
+            // SWITCHED TO LLAMA 3.2 1B - More stable than Qwen!
             addModelFromURL(
-                url = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q6_k.gguf",
-                name = "Qwen 2.5 3B Instruct Q6_K",
+                url = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q6_K_L.gguf",
+                name = "Llama 3.2 1B Instruct Q6_K",
                 type = "LLM"
             )
-            Log.d("MyApplication", "📥 Registered AI Model: Qwen 2.5 3B (2.3 GB)")
-            Log.d("MyApplication", "🎮 Single Model Strategy:")
-            Log.d("MyApplication", "  → Beginner Mode: Qwen 3B (IQ 55-65)")
-            Log.d("MyApplication", "  → Intermediate Mode: Qwen 3B (IQ 70-80)")
-            Log.d("MyApplication", "  → Advanced Mode: Qwen 3B (IQ 85-95)")
-            Log.d("MyApplication", "  → P2P Mode: Qwen 3B")
-            Log.d("MyApplication", "  ✨ Same model, different IQ levels for varied difficulty!")
-
+            Log.d("MyApplication", "📥 Registered AI Model: Llama 3.2 1B (815 MB)")
+            Log.d("MyApplication", "  → More stable than Qwen")
+            Log.d("MyApplication", "  → Better for all difficulty modes")
+            Log.d("MyApplication", "  → Less repetition issues")
         } catch (e: Exception) {
-            Log.e("MyApplication", "❌ Error registering models", e)
-            e.printStackTrace()
+            Log.e("MyApplication", "Failed to register Llama model", e)
         }
     }
 }

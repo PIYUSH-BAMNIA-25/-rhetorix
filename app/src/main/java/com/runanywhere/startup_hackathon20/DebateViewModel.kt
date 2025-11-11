@@ -86,6 +86,30 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
     // Model heartbeat job to keep it alive
     private var modelHeartbeatJob: kotlinx.coroutines.Job? = null
 
+    /**
+     * CRITICAL FIX: Reload model to clear KV cache before generation
+     * This prevents sequence position mismatches in llama-android
+     */
+    private suspend fun reloadModelForFreshGeneration(): Boolean {
+        val modelId = _currentModelId.value ?: return false
+        
+        return try {
+            Log.d("DebateViewModel", "🔄 Reloading model to clear KV cache...")
+            val success = RunAnywhere.loadModel(modelId)
+            if (success) {
+                Log.d("DebateViewModel", "✅ Model reloaded successfully, KV cache cleared")
+                // Small delay to ensure model is ready
+                delay(500)
+            } else {
+                Log.e("DebateViewModel", "❌ Failed to reload model")
+            }
+            success
+        } catch (e: Exception) {
+            Log.e("DebateViewModel", "❌ Error reloading model", e)
+            false
+        }
+    }
+
     init {
         loadAvailableModels()
     }
@@ -202,12 +226,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 Log.d("DebateViewModel", "Found ${models.size} models: ${models.map { it.name }}")
 
                 // Step 1: Determine which model to use based on difficulty
-                val modelToUse = when (gameMode) {
-                    GameMode.AI_BEGINNER -> "Qwen 2.5 3B Instruct Q6_K"  // Single model for all
-                    GameMode.AI_INTERMEDIATE,
-                    GameMode.AI_ADVANCED,
-                    GameMode.PVP -> "Qwen 2.5 3B Instruct Q6_K"  // Same model
-                }
+                val modelToUse = "Llama 3.2 1B Instruct Q6_K"  // STABLE MODEL - works for all modes
 
                 _statusMessage.value = "Looking for model: $modelToUse..."
                 Log.d("DebateViewModel", "🔍 Looking for model: $modelToUse")
@@ -284,6 +303,11 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                     Log.d("DebateViewModel", "🔄 Re-scanned models as workaround")
                 } catch (e: Exception) {
                     Log.e("DebateViewModel", "Failed to re-scan models", e)
+                }
+
+                // CRITICAL FIX: Reload model to clear KV cache before test
+                if (!reloadModelForFreshGeneration()) {
+                    Log.w("DebateViewModel", "⚠️ Failed to reload model before test")
                 }
 
                 var testSuccess = false
@@ -613,6 +637,12 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             _statusMessage.value = "🧠 AI is thinking..."
             _isAITyping.value = false
 
+            // CRITICAL FIX: Reload model to clear KV cache before AI generation
+            if (!reloadModelForFreshGeneration()) {
+                Log.e("DebateViewModel", "❌ Failed to reload model before AI generation")
+                // Continue anyway with fallback
+            }
+
             // Generate response (this may take time)
             val aiPrompt = buildAIPrompt(currentSession)
             Log.d("DebateViewModel", "🤖 Generating AI response...")
@@ -873,6 +903,31 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
         turnNumber: Int = 0
     ): TurnScore {
         return try {
+            // CRITICAL FIX: Reload model to clear KV cache before judging
+            if (!reloadModelForFreshGeneration()) {
+                Log.w(
+                    "DebateViewModel",
+                    "⚠️ Failed to reload model before judging, using default score"
+                )
+                // Return smart default if reload fails
+                val messageLength = currentResponse.length
+                val defaultScore = when {
+                    messageLength < 20 -> 4
+                    messageLength < 50 -> 5
+                    messageLength < 100 -> 6
+                    messageLength < 150 -> 7
+                    else -> 8
+                }.coerceIn(4, 8)
+
+                return TurnScore(
+                    speaker = speaker,
+                    score = defaultScore,
+                    reasoning = "Model reload failed - scored based on length: ${messageLength} chars",
+                    hasProfanity = false,
+                    factCheck = "Not evaluated"
+                )
+            }
+
             val judgingPrompt = buildJudgingPromptTurnBased(
                 currentResponse = currentResponse,
                 previousOpponentResponse = previousOpponentResponse,
@@ -1193,6 +1248,32 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
         aiAvgScore: Float
     ): FinalVerdict {
 
+        // CRITICAL FIX: Reload model to clear KV cache before final judgment
+        if (!reloadModelForFreshGeneration()) {
+            Log.w(
+                "DebateViewModel",
+                "⚠️ Failed to reload model before final judgment, using fallback"
+            )
+            // Use turn scores as fallback
+            if (playerAvgScore > aiAvgScore) {
+                return FinalVerdict(
+                    winner = session.player1.id,
+                    overallAnalysis = "Better average turn scores",
+                    playerFeedback = "Strength: Consistent performance. Weakness: Could use more evidence",
+                    aiFeedback = "Strength: Logical arguments. Weakness: Less persuasive overall",
+                    detailedAnalysis = "Winner determined by turn-by-turn scoring"
+                )
+            } else {
+                return FinalVerdict(
+                    winner = "ai_opponent",
+                    overallAnalysis = "Better average turn scores",
+                    playerFeedback = "Strength: Good engagement. Weakness: Arguments less developed",
+                    aiFeedback = "Strength: Strong logical reasoning. Weakness: Could be more varied",
+                    detailedAnalysis = "Winner determined by turn-by-turn scoring"
+                )
+            }
+        }
+
         val topic = session.topic
         val playerSide = if (session.player1Side == DebateSide.FOR) "FOR" else "AGAINST"
         val aiSide = if (session.player2Side == DebateSide.FOR) "FOR" else "AGAINST"
@@ -1289,6 +1370,21 @@ $judgmentContent<|im_end|>
         playerAvgScore: Float,
         aiAvgScore: Float
     ): FinalVerdict {
+
+        // CRITICAL FIX: Reload model to clear KV cache before feedback generation
+        if (!reloadModelForFreshGeneration()) {
+            Log.w(
+                "DebateViewModel",
+                "⚠️ Failed to reload model before feedback, using default feedback"
+            )
+            return FinalVerdict(
+                winner = "", // not used -- feedback only
+                overallAnalysis = "Solid performance overall but could improve in some areas.",
+                playerFeedback = "Strengths: Good engagement, logical reasoning, clear arguments. Areas to improve: Use more examples, address more rebuttals, improve clarity. Solid performance overall but could improve in some areas.",
+                aiFeedback = "Strengths: Consistent logic, varied arguments, strong counterpoints. Areas to improve: More persuasive language, less repetition, clearer structure. The AI gave well-structured arguments but could connect better with the opponent.",
+                detailedAnalysis = "Default feedback due to model reload failure"
+            )
+        }
 
         val topic = session.topic
         val playerSide = if (session.player1Side == DebateSide.FOR) "FOR" else "AGAINST"

@@ -87,7 +87,11 @@ fun AIPracticeModeScreen(
         pendingGameMode = null
 
         // Check if model is ready
-        val requiredModelName = "Qwen 2.5 3B Instruct Q6_K"
+        val requiredModelName = when (gameMode) {
+            GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"
+            GameMode.AI_INTERMEDIATE, GameMode.AI_ADVANCED -> "Llama 3.2 1B Instruct Q6_K"
+            else -> ""
+        }
         val requiredModel = availableModels.find { it.name == requiredModelName }
 
         if (requiredModel != null && requiredModel.isDownloaded && currentModelId == requiredModel.id) {
@@ -109,7 +113,11 @@ fun AIPracticeModeScreen(
     LaunchedEffect(currentModelId, showModelDownloadDialog) {
         // Only proceed if we have a pending mode AND model just became ready
         if (pendingGameMode != null && showModelDownloadDialog) {
-            val requiredModelName = "Qwen 2.5 3B Instruct Q6_K"
+            val requiredModelName = when (pendingGameMode) {
+                GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"
+                GameMode.AI_INTERMEDIATE, GameMode.AI_ADVANCED -> "Llama 3.2 1B Instruct Q6_K"
+                else -> ""
+            }
             val model = availableModels.find { it.name == requiredModelName }
 
             if (model != null && model.isDownloaded && currentModelId == model.id) {
@@ -210,7 +218,7 @@ fun AIPracticeModeScreen(
                 isLocked = !beginnerUnlocked,
                 requiredWins = DifficultyLevel.BEGINNER.requiredWins,
                 currentWins = userWins,
-                modelInfo = "Qwen 2.5 3B",
+                modelInfo = "Llama 3.2 1B Instruct Q6_K",
                 onClick = {
                     if (beginnerUnlocked) {
                         android.util.Log.d("AIPracticeMode", "🎮 Beginner clicked")
@@ -235,7 +243,7 @@ fun AIPracticeModeScreen(
                 isLocked = !intermediateUnlocked,
                 requiredWins = DifficultyLevel.INTERMEDIATE.requiredWins,
                 currentWins = userWins,
-                modelInfo = "Qwen 2.5 3B",
+                modelInfo = "Llama 3.2 1B",
                 onClick = {
                     if (intermediateUnlocked) {
                         android.util.Log.d("AIPracticeMode", "🎮 Intermediate clicked")
@@ -260,7 +268,7 @@ fun AIPracticeModeScreen(
                 isLocked = !advancedUnlocked,
                 requiredWins = DifficultyLevel.ADVANCED.requiredWins,
                 currentWins = userWins,
-                modelInfo = "Qwen 2.5 3B",
+                modelInfo = "Llama 3.2 1B",
                 onClick = {
                     if (advancedUnlocked) {
                         android.util.Log.d("AIPracticeMode", "🎮 Advanced clicked")
@@ -841,8 +849,8 @@ fun ModelDownloadDialog(
 ) {
     // Determine required model name
     val requiredModelName = when (gameMode) {
-        GameMode.AI_BEGINNER -> "Qwen 2.5 3B Instruct Q6_K"
-        GameMode.AI_INTERMEDIATE, GameMode.AI_ADVANCED -> "Qwen 2.5 3B Instruct Q6_K"
+        GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"
+        GameMode.AI_INTERMEDIATE, GameMode.AI_ADVANCED -> "Llama 3.2 1B Instruct Q6_K"
         else -> ""
     }
     
