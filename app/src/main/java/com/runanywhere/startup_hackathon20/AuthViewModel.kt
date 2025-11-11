@@ -14,6 +14,8 @@ sealed class AuthState {
     object Idle : AuthState()
     object Loading : AuthState()
     data class Success(val user: UserData) : AuthState()
+    data class SignUpSuccess(val message: String = "Account created successfully! Please log in.") :
+        AuthState()
     data class Error(val message: String) : AuthState()
 }
 
@@ -86,8 +88,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
             serverResult.onSuccess { serverUser ->
                 Log.d(TAG, "Server signup successful: ${serverUser.playerId}")
-                // Auto-login after signup
-                login(email, password)
+                // Show success message instead of auto-login
+                _authState.value = AuthState.SignUpSuccess()
             }.onFailure { error ->
                 Log.e(TAG, "Server signup failed: ${error.message}")
                 _authState.value =

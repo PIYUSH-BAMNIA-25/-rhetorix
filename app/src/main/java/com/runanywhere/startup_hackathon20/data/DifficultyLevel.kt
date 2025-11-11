@@ -28,7 +28,7 @@ enum class DifficultyLevel(
 
     INTERMEDIATE(
         displayName = "Intermediate",
-        requiredWins = 2,
+        requiredWins = 0,
         modelName = "Qwen 2.5 3B Instruct Q6_K",
         unlockMessage = "🎉 Intermediate AI Unlocked! The AI has evolved!",
         description = "Face a smarter AI with better reasoning",
@@ -37,7 +37,7 @@ enum class DifficultyLevel(
 
     ADVANCED(
         displayName = "Advanced",
-        requiredWins = 5,
+        requiredWins = 0,
         modelName = "Qwen 2.5 3B Instruct Q6_K",
         unlockMessage = "🔥 Advanced AI Unlocked! Ultimate challenge awaits!",
         description = "Challenge the most sophisticated AI opponent",
@@ -46,7 +46,7 @@ enum class DifficultyLevel(
 
     PVP(
         displayName = "P2P Mode",
-        requiredWins = 3,
+        requiredWins = 0,
         modelName = "Qwen 2.5 3B Instruct Q6_K",
         unlockMessage = "⚔️ P2P Mode Unlocked! Challenge real players!",
         description = "Compete against real players with fair AI judging",

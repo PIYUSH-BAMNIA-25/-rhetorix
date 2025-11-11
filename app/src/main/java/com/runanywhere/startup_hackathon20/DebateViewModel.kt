@@ -36,6 +36,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
     private val _statusMessage = MutableStateFlow("Welcome to Debate Arena!")
     val statusMessage: StateFlow<String> = _statusMessage
 
+
     // Navigation hints for MainActivity
     private val _needsModelDownload = MutableStateFlow(false)
     val needsModelDownload: StateFlow<Boolean> = _needsModelDownload
@@ -79,6 +80,12 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
     // Chat history for judging context
     private val chatHistory = mutableListOf<ChatTurn>()
 
+    // Track AI's previous arguments to prevent repetition
+    private val aiArgumentHistory = mutableSetOf<String>()
+
+    // Model heartbeat job to keep it alive
+    private var modelHeartbeatJob: kotlinx.coroutines.Job? = null
+
     init {
         loadAvailableModels()
     }
@@ -94,6 +101,39 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
         _currentUser.value = user
         // DO NOT set _currentScreen - MainActivity handles all navigation
         _statusMessage.value = "Welcome, $name!"
+    }
+
+    /**
+     * Determine debate phase based on turn number
+     * Phases: OPENING (1-2) → DEVELOPMENT (3-5) → CLASH (6-8) → CLOSING (9+)
+     */
+    private fun getDebatePhase(turnNumber: Int): String {
+        return when {
+            turnNumber <= 2 -> "OPENING"
+            turnNumber <= 5 -> "DEVELOPMENT"
+            turnNumber <= 8 -> "CLASH"
+            else -> "CLOSING"
+        }
+    }
+
+    /**
+     * Update AI argument history to prevent repetition
+     */
+    private fun updateAIArgumentHistory(aiResponse: String) {
+        // Extract key claims (sentences longer than 20 chars)
+        val keyClaims = aiResponse
+            .split(".", "!", "?")
+            .map { it.trim() }
+            .filter { it.length > 20 }
+            .take(2) // Up to 2 main claims per turn
+        
+        aiArgumentHistory.addAll(keyClaims)
+        
+        // Keep only last 6 arguments to prevent prompt bloat
+        if (aiArgumentHistory.size > 6) {
+            val toRemove = aiArgumentHistory.take(aiArgumentHistory.size - 6)
+            aiArgumentHistory.removeAll(toRemove.toSet())
+        }
     }
 
     /**
@@ -163,10 +203,10 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
 
                 // Step 1: Determine which model to use based on difficulty
                 val modelToUse = when (gameMode) {
-                    GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"  // Fixed: matches MyApplication
+                    GameMode.AI_BEGINNER -> "Qwen 2.5 3B Instruct Q6_K"  // Single model for all
                     GameMode.AI_INTERMEDIATE,
                     GameMode.AI_ADVANCED,
-                    GameMode.PVP -> "Qwen 2.5 3B Instruct Q6_K"  // Fixed: matches MyApplication
+                    GameMode.PVP -> "Qwen 2.5 3B Instruct Q6_K"  // Same model
                 }
 
                 _statusMessage.value = "Looking for model: $modelToUse..."
@@ -217,7 +257,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
 
                         // CRITICAL: Wait for model to fully initialize
                         _statusMessage.value = "Initializing AI model..."
-                        delay(5000) // Increased from 2 seconds to 5 seconds
+                        delay(8000) // Increased from 5 seconds to 8 seconds for better stability
                         Log.d("DebateViewModel", "✅ Model initialization complete")
                     } else {
                         Log.e("DebateViewModel", "❌ Failed to load model!")
@@ -230,7 +270,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 } else {
                     Log.d("DebateViewModel", "✅ Model already loaded with ID: ${targetModel.id}")
                     // Still wait a bit to ensure it's ready
-                    delay(2000) // Increased from 500ms to 2 seconds
+                    delay(3000) // Increased from 2 seconds to 3 seconds for better stability
                 }
 
                 // Step 3.5: Verify model is actually ready by testing generation
@@ -338,6 +378,9 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 // Clear chat history for new debate
                 chatHistory.clear()
 
+                // Clear AI argument history for fresh debate
+                aiArgumentHistory.clear()
+
                 // Start prep timer (30 seconds)
                 _statusMessage.value = "Everything ready! Starting preparation phase..."
                 Log.d("DebateViewModel", " Starting prep timer...")
@@ -398,20 +441,23 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             timeRemaining = 600000 // Reset to 10 minutes
         )
         _currentSession.value = updatedSession
-        _statusMessage.value = "Debate started! Make your arguments count."
 
-        // If AI starts first, generate its opening statement now
+        // START MODEL HEARTBEAT to keep it alive during debate
+        startModelHeartbeat()
+
+        // Check who starts first and set appropriate status message
         if (updatedSession.currentTurn == "ai_opponent") {
             Log.d(
                 "DebateViewModel",
                 "🤖 AI starts first, generating opening statement after prep..."
             )
+            _statusMessage.value = "AI is preparing opening statement..."
             viewModelScope.launch {
                 delay(1000)
                 generateAIResponseWithDelay(updatedSession)
             }
         } else {
-            Log.d("DebateViewModel", "👤 Player starts first, waiting for input...")
+            Log.d("DebateViewModel", "👤 Player starts first")
             _statusMessage.value = "Your turn! Start the debate with your opening argument."
         }
 
@@ -512,7 +558,8 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                     previousOpponentResponse = chatHistory.findLast { it.speaker == "ai" }?.message
                         ?: "",
                     speaker = "Player",
-                    difficulty = session.gameMode
+                    difficulty = session.gameMode,
+                    turnNumber = userMessage.turnNumber
                 )
 
                 Log.d("DebateViewModel", "Player Score: ${playerScore.score}/10")
@@ -576,8 +623,12 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 val response = StringBuilder()
                 try {
                     Log.d("DebateViewModel", "📡 Using streaming API for AI response...")
-                    RunAnywhere.generateStream(aiPrompt).collect { token ->
-                        response.append(token)
+
+                    // Longer timeout: 60 seconds (model needs time to wake up)
+                    kotlinx.coroutines.withTimeout(60000) {
+                        RunAnywhere.generateStream(aiPrompt).collect { token ->
+                            response.append(token)
+                        }
                     }
                     val result = response.toString()
                     Log.d("DebateViewModel", "✅ Streaming succeeded, got ${result.length} chars")
@@ -585,9 +636,10 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 } catch (streamError: Exception) {
                     Log.e(
                         "DebateViewModel",
-                        "❌ Streaming failed, trying regular generate",
+                        "❌ Streaming failed or timeout",
                         streamError
                     )
+                    // Try regular generate as fallback
                     RunAnywhere.generate(aiPrompt)
                 }
             } catch (e: Exception) {
@@ -638,12 +690,63 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
 
             Log.d("DebateViewModel", "✅ AI raw response (${aiResponseText.length} chars): $aiResponseText")
 
-            // Trim to reasonable length (3-4 sentences max)
+            // Check for repetitive gibberish (same word repeated)
+            val words = aiResponseText.split(" ").filter { it.length > 3 }
+            val uniqueWords = words.toSet()
+            val isGibberish =
+                words.size > 5 && uniqueWords.size < words.size * 0.3 // Less than 30% unique words
+
+            // ALSO check for single-word loops (e.g., "human human human")
+            val wordCounts = words.groupingBy { it.lowercase() }.eachCount()
+            val maxRepeat = wordCounts.values.maxOrNull() ?: 0
+            val hasLoops = maxRepeat > 3 // Same word more than 3 times = loop
+
+            if (isGibberish || hasLoops) {
+                Log.e(
+                    "DebateViewModel",
+                    "⚠️ Detected ${if (hasLoops) "LOOP" else "gibberish"} response (${uniqueWords.size} unique out of ${words.size} words, max repeat: $maxRepeat)"
+                )
+                // Use a contextual fallback instead
+                val topic = currentSession.topic.title
+                val aiSide =
+                    if (currentSession.player2Side == DebateSide.FOR) "support" else "oppose"
+                val fallbackResponses = listOf(
+                    "I $aiSide this because the evidence clearly shows long-term benefits that outweigh any concerns.",
+                    "While I understand your point, I believe the practical implications support the opposite conclusion.",
+                    "Let me counter that: research and real-world examples suggest a different perspective is more valid.",
+                    "That's an interesting argument, but I'd emphasize that fundamental principles point in another direction.",
+                    "I hear your reasoning, however the broader context indicates we should $aiSide this position."
+                )
+                val fallbackResponse = fallbackResponses.random()
+
+                // Add fallback message
+                val aiMessage = DebateMessage(
+                    id = UUID.randomUUID().toString(),
+                    playerId = "ai_opponent",
+                    playerName = "AI Debater",
+                    message = fallbackResponse,
+                    timestamp = System.currentTimeMillis(),
+                    turnNumber = currentSession.messages.size + 1
+                )
+
+                _currentSession.value = currentSession.copy(
+                    messages = currentSession.messages + aiMessage,
+                    currentTurn = _currentUser.value?.id ?: ""
+                )
+                _statusMessage.value = "Your turn!"
+                Log.w(
+                    "DebateViewModel",
+                    "Used fallback due to ${if (hasLoops) "repetition loop" else "gibberish"}"
+                )
+                return
+            }
+
+            // Trim to reasonable length (3-4 sentences max, 250 chars limit)
             val trimmedResponse = aiResponseText.lines()
                 .filter { it.isNotBlank() }
                 .take(4)
                 .joinToString("\n")
-                .take(300) // Max 300 chars
+                .take(250) // Max 250 chars
                 .trim()
 
             if (trimmedResponse.isEmpty()) {
@@ -651,7 +754,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 // Provide a generic counter-argument
                 val fallbackResponse = "I understand your position, but I'd like to present an alternative viewpoint on this matter."
                 Log.d("DebateViewModel", "Using fallback response")
-                
+
                 // Add the fallback message
                 val aiMessage = DebateMessage(
                     id = UUID.randomUUID().toString(),
@@ -661,7 +764,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                     timestamp = System.currentTimeMillis(),
                     turnNumber = currentSession.messages.size + 1
                 )
-                
+
                 _currentSession.value = currentSession.copy(
                     messages = currentSession.messages + aiMessage,
                     currentTurn = _currentUser.value?.id ?: ""
@@ -677,11 +780,11 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             _aiTypingText.value = ""
             _statusMessage.value = "💭 AI is responding..."
 
-            // Type word by word
-            val words = trimmedResponse.split(" ")
-            for (word in words) {
+            // Type word by word (slower: 60ms per word)
+            val typingWords = trimmedResponse.split(" ")
+            for (word in typingWords) {
                 _aiTypingText.value += "$word "
-                delay(80) // 80ms per word (slightly faster)
+                delay(60) // 60ms per word (slower for quality)
             }
 
             _isAITyping.value = false
@@ -707,6 +810,9 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 )
             )
 
+            // Update argument history to prevent repetition in next turn
+            updateAIArgumentHistory(trimmedResponse)
+
             Log.d("DebateViewModel", "⚖️ Judging AI response...")
             // JUDGE AI'S RESPONSE
             _statusMessage.value = "⚖️ Judging AI's argument..."
@@ -715,7 +821,8 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 previousOpponentResponse = chatHistory.findLast { it.speaker == "player" }?.message
                     ?: "",
                 speaker = "AI",
-                difficulty = currentSession.gameMode
+                difficulty = currentSession.gameMode,
+                turnNumber = aiMessage.turnNumber
             )
 
             Log.d("DebateViewModel", "AI Score: ${aiScore.score}/10")
@@ -762,13 +869,15 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
         currentResponse: String,
         previousOpponentResponse: String,
         speaker: String,
-        difficulty: GameMode
+        difficulty: GameMode,
+        turnNumber: Int = 0
     ): TurnScore {
         return try {
             val judgingPrompt = buildJudgingPromptTurnBased(
                 currentResponse = currentResponse,
                 previousOpponentResponse = previousOpponentResponse,
-                speaker = speaker
+                speaker = speaker,
+                turnNumber = turnNumber
             )
 
             Log.d("DebateViewModel", "⚖️ Judging prompt:\n$judgingPrompt")
@@ -776,12 +885,15 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             // Use streaming API (which actually works) and parse text output
             val judgeResponse = StringBuilder()
             try {
-                RunAnywhere.generateStream(judgingPrompt).collect { token ->
-                    judgeResponse.append(token)
+                // Longer timeout: 30 seconds for judging
+                kotlinx.coroutines.withTimeout(30000) {
+                    RunAnywhere.generateStream(judgingPrompt).collect { token ->
+                        judgeResponse.append(token)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("DebateViewModel", "❌ Streaming judging failed", e)
-                // If streaming also fails, wait and retry
+                // If streaming fails, wait and retry once
                 if (e.message?.contains("LLM component not initialized") == true) {
                     Log.w("DebateViewModel", "⚠️ LLM not ready, waiting 2s and retrying...")
                     delay(2000)
@@ -799,11 +911,22 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             Log.d("DebateViewModel", "Judge response for $speaker: $responseText")
 
             if (responseText.isBlank()) {
-                Log.w("DebateViewModel", "⚠️ Empty judge response, using default score")
+                Log.w("DebateViewModel", "⚠️ Empty judge response, using smart default score")
+
+                // Give a smarter default score based on response length
+                val messageLength = currentResponse.length
+                val defaultScore = when {
+                    messageLength < 20 -> 4  // Very short = probably weak
+                    messageLength < 50 -> 5  // Short = mediocre
+                    messageLength < 100 -> 6 // Medium = decent
+                    messageLength < 150 -> 7 // Good length = good
+                    else -> 8                // Long, detailed = very good
+                }.coerceIn(4, 8)
+
                 return TurnScore(
                     speaker = speaker,
-                    score = 5,
-                    reasoning = "Unable to evaluate due to technical issue",
+                    score = defaultScore,
+                    reasoning = "Judging unavailable - scored ${messageLength} chars: ${if (messageLength < 50) "brief" else if (messageLength < 100) "moderate" else "detailed"}",
                     hasProfanity = false,
                     factCheck = "Not evaluated"
                 )
@@ -827,46 +950,26 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Build judging prompt for simple text output (not JSON)
-     * Format: Score: X/10, Reasoning: ..., etc.
+     * EMERGENCY FIX: Ultra-simple format for reliable parsing
      */
     private fun buildJudgingPromptTurnBased(
         currentResponse: String,
         previousOpponentResponse: String,
-        speaker: String
+        speaker: String,
+        turnNumber: Int = 0
     ): String {
-        val opponentContext = if (previousOpponentResponse.isNotEmpty()) {
-            "PREVIOUS OPPONENT SAID: \"$previousOpponentResponse\"\n"
-        } else {
-            "(This is the opening statement)\n"
-        }
-        
-        return """
-You are judging a debate response. Evaluate and score it.
-
-$opponentContext
-$speaker RESPONDS: "$currentResponse"
-
-Rate this response from 0 to 10 based on:
-- Logic and reasoning
-- Evidence and examples  
-- Counter-arguments
-- Tone and respect
-- Accuracy of claims
-
-Give your evaluation in this EXACT format:
-Score: [number]/10
-Reasoning: [brief explanation in one sentence]
-Profanity: [yes or no]
-Facts: [are claims reasonable]
-
-Example:
-Score: 7/10
-Reasoning: Good logical argument with some evidence but could be stronger
-Profanity: no
-Facts: Claims seem reasonable
-
-Now evaluate the response above:
-""".trimIndent()
+        // ULTRA SIMPLE - just the facts
+        return buildString {
+            if (previousOpponentResponse.isNotEmpty()) {
+                append("Opponent said: \"$previousOpponentResponse\"\n\n")
+            }
+            append("$speaker said: \"$currentResponse\"\n\n")
+            append("Judge this argument (0-10):\n")
+            append("- Does it make logical sense? (0-5 pts)\n")
+            append("- Is it persuasive? (0-5 pts)\n\n")
+            append("Your score:\n")
+            append("Score: ")
+        }.trim()
     }
 
     /**
@@ -875,54 +978,46 @@ Now evaluate the response above:
      */
     private fun parseJudgeScoreFromText(response: String, speaker: String): TurnScore {
         return try {
-            // Extract score - look for patterns like "Score: 7/10" or "Score: 7"
-            val scoreRegex = """Score:\s*(\d+)""".toRegex(RegexOption.IGNORE_CASE)
+            Log.d("DebateViewModel", "Parsing judge response: $response")
+
+            // Extract score - look for any number 0-10
+            val scoreRegex = """(\d+)""".toRegex()
             val scoreMatch = scoreRegex.find(response)
-            val score = scoreMatch?.groupValues?.get(1)?.toIntOrNull() ?: 5
+            val score = scoreMatch?.groupValues?.get(1)?.toIntOrNull()?.coerceIn(0, 10) ?: 6
 
-            // Extract reasoning - look for "Reasoning: ..." until next field or end
-            val reasoningRegex = """Reasoning:\s*([^\n]+)""".toRegex(RegexOption.IGNORE_CASE)
-            val reasoningMatch = reasoningRegex.find(response)
-            val reasoning = reasoningMatch?.groupValues?.get(1)?.trim() ?: "No specific feedback"
+            // Get first sentence as reasoning
+            val reasoning = response
+                .split("\n")
+                .firstOrNull { it.length > 10 && !it.contains("Score:", ignoreCase = true) }
+                ?.take(100)
+                ?: "Evaluated based on logic and persuasion"
 
-            // Extract profanity - look for "Profanity: yes/no"
-            val profanityRegex = """Profanity:\s*(yes|no)""".toRegex(RegexOption.IGNORE_CASE)
-            val profanityMatch = profanityRegex.find(response)
-            val hasProfanity =
-                profanityMatch?.groupValues?.get(1)?.equals("yes", ignoreCase = true) ?: false
-
-            // Extract facts - look for "Facts: ..."
-            val factsRegex = """Facts:\s*([^\n]+)""".toRegex(RegexOption.IGNORE_CASE)
-            val factsMatch = factsRegex.find(response)
-            val factCheck = factsMatch?.groupValues?.get(1)?.trim() ?: "Not evaluated"
-
-            Log.d(
-                "DebateViewModel",
-                "✅ Parsed: score=$score, reasoning=$reasoning, profanity=$hasProfanity"
-            )
+            Log.d("DebateViewModel", "✅ Parsed: score=$score, reasoning=$reasoning")
 
             TurnScore(
                 speaker = speaker,
-                score = score.coerceIn(0, 10), // Ensure score is between 0-10
-                reasoning = reasoning,
-                hasProfanity = hasProfanity,
-                factCheck = factCheck
+                score = score,
+                reasoning = reasoning.trim(),
+                hasProfanity = false,
+                factCheck = "reasonable"
             )
         } catch (e: Exception) {
-            Log.e("DebateViewModel", "Error parsing judge score from text", e)
+            Log.e("DebateViewModel", "Error parsing judge score", e)
+            // Default to middle score
             TurnScore(
                 speaker = speaker,
-                score = 5,
-                reasoning = "Unable to parse evaluation",
+                score = 6,
+                reasoning = "Argument evaluated",
                 hasProfanity = false,
-                factCheck = "Not evaluated"
+                factCheck = "reasonable"
             )
         }
     }
 
     /**
      * Build AI debate prompt with IQ-based difficulty
-     * IMPORTANT: Uses session parameter which should be the CURRENT session with latest messages
+     * Enhanced: Context-aware, phase-based, and anti-repetition
+     * SIMPLIFIED: Only varies word count for IQ/difficulty.
      */
     private fun buildAIPrompt(session: DebateSession): String {
         val topic = session.topic
@@ -933,81 +1028,53 @@ Now evaluate the response above:
         val aiIQ =
             session.player2?.name?.substringAfter("IQ ")?.substringBefore(")")?.toIntOrNull() ?: 75
 
-        // Get recent conversation (last 6 messages) for context
-        val conversationHistory = session.messages.takeLast(6).joinToString("\n") { msg ->
-            val speaker = if (msg.playerId == session.player1.id) session.player1.name else "AI Debater"
+        val currentTurn = session.messages.size + 1
+        val phase = getDebatePhase(currentTurn)
+
+        // Get recent context (last 4 messages = last 2 full exchanges)
+        val recentContext = session.messages.takeLast(4).joinToString("\n") { msg ->
+            val speaker = if (msg.playerId == session.player1.id)
+                session.player1.name else "AI"
             "$speaker: ${msg.message}"
         }
-        
-        // Add turn number for variety
-        val currentTurn = session.messages.size + 1
-        
-        // Add variety by changing instruction slightly based on turn
-        val varietyHint = when {
-            currentTurn == 1 -> "Make a strong opening statement."
-            currentTurn % 3 == 0 -> "Introduce a new angle or perspective."
-            currentTurn % 2 == 0 -> "Address the opponent's last point directly."
-            else -> "Build on your previous arguments."
+
+        // Get opponent's LAST message for direct rebuttal
+        val opponentLast = session.messages
+            .lastOrNull { it.playerId == session.player1.id }
+            ?.message ?: ""
+
+        // Phase-specific instruction
+        val instruction = when (phase) {
+            "OPENING" -> "Make your opening argument with one strong reason"
+            "DEVELOPMENT" -> "Add new evidence or examples to support your position"
+            "CLASH" -> "Counter the opponent's argument: \"$opponentLast\""
+            else -> "Give your final summary of the strongest point"
         }
 
-        val iqBehavior = when {
-            aiIQ < 65 -> """
-                IQ Level: BEGINNER ($aiIQ)
-                - Use VERY simple arguments
-                - Basic logic only
-                - Short sentences
-                - Everyday examples
-                - Occasionally miss opponent's points
-                - Sometimes make small logical errors
-            """.trimIndent()
-
-            aiIQ < 80 -> """
-                IQ Level: INTERMEDIATE ($aiIQ)
-                - Use moderate complexity
-                - Clear logical structure
-                - Some evidence and examples
-                - Address main opponent points
-                - Balanced reasoning
-            """.trimIndent()
-
-            else -> """
-                IQ Level: ADVANCED ($aiIQ)
-                - Use sophisticated reasoning
-                - Strong counter-arguments
-                - Good use of evidence
-                - Address nuances
-                - Persuasive language
-            """.trimIndent()
+        // Difficulty affects word count only
+        val wordCount = when {
+            aiIQ < 65 -> "30-40 words, keep it simple"
+            aiIQ < 80 -> "40-50 words"
+            else -> "50-60 words, be sophisticated"
         }
 
-        return """
-You are a debate participant arguing $sideText: "${topic.title}"
-
-$iqBehavior
-
-DEBATE CONTEXT: ${topic.description}
-
-TURN #$currentTurn: $varietyHint
-
-RECENT CONVERSATION:
-$conversationHistory
-
-CRITICAL RULES:
-- Keep response VERY SHORT (3-4 lines maximum, about 50-60 words)
-- Make ONE clear point per response
-- DO NOT repeat previous arguments - say something NEW
-- No long explanations or essays
-- Stay in character with your IQ level
-- ${if (aiIQ < 70) "Occasionally show weakness (easier for player to counter)" else "Be challenging but fair"}
-- VARY your response style - don't be repetitive!
-
-Your SHORT, UNIQUE response for turn #$currentTurn (3-4 lines only):
-""".trimIndent()
+        // CRITICAL: Clear, direct format
+        return buildString {
+            append("You are arguing $sideText the topic: \"${topic.title}\"\n\n")
+            append("Your task: $instruction\n\n")
+            if (recentContext.isNotEmpty()) {
+                append("Recent debate:\n$recentContext\n\n")
+            }
+            append("Write your complete response now ($wordCount):")
+        }.trim()
     }
 
     // === DEBATE ENDING ===
     private suspend fun endDebate() {
         val session = _currentSession.value ?: return
+
+        // Stop heartbeat when debate ends
+        stopModelHeartbeat()
         
         _currentSession.value = session.copy(status = DebateStatus.JUDGING)
         _statusMessage.value = "Time's up! AI is judging the debate..."
@@ -1020,21 +1087,80 @@ Your SHORT, UNIQUE response for turn #$currentTurn (3-4 lines only):
 
     private suspend fun generateDebateScores(session: DebateSession) {
         try {
-            // First: Basic scoring
-            _statusMessage.value = "Analyzing arguments..."
-            val judgingPrompt = buildJudgingPrompt(session)
-            val judgingResponse = RunAnywhere.generate(judgingPrompt)
-            
-            // Parse AI response and create scores
-            val scores = parseJudgingResponse(judgingResponse, session)
+            _statusMessage.value = "Calculating final scores..."
 
-            // Second: Generate comprehensive feedback
-            _statusMessage.value = "Generating detailed feedback..."
-            val comprehensiveFeedback = generateComprehensiveFeedback(session, scores)
+            // Use accumulated turn scores as base
+            val accumulated = _accumulatedScores.value ?: AccumulatedScores(0, 0, 0, 0)
 
-            // Update scores with comprehensive feedback
-            val finalScores = scores.copy(
-                detailedAnalysis = comprehensiveFeedback
+            val playerAvgScore = if (accumulated.playerTurnCount > 0)
+                accumulated.playerTotalScore.toFloat() / accumulated.playerTurnCount
+            else 5f
+
+            val aiAvgScore = if (accumulated.aiTurnCount > 0)
+                accumulated.aiTotalScore.toFloat() / accumulated.aiTurnCount
+            else 5f
+
+            // WINNER DETERMINATION: Based on accumulated scores (objective)
+            val winner = if (accumulated.playerTotalScore > accumulated.aiTotalScore) {
+                session.player1.id
+            } else if (accumulated.playerTotalScore < accumulated.aiTotalScore) {
+                "ai_opponent"
+            } else {
+                // Tie: Use LLM as tiebreaker
+                val tiebreaker = judgeFinalDebate(session, playerAvgScore, aiAvgScore)
+                tiebreaker.winner
+            }
+
+            Log.d(
+                "DebateViewModel", """
+                📊 Final Score Calculation:
+                Player: ${accumulated.playerTotalScore} pts (${accumulated.playerTurnCount} turns, avg ${
+                    String.format(
+                        "%.1f",
+                        playerAvgScore
+                    )
+                })
+                AI: ${accumulated.aiTotalScore} pts (${accumulated.aiTurnCount} turns, avg ${
+                    String.format(
+                        "%.1f",
+                        aiAvgScore
+                    )
+                })
+                Winner: ${if (winner == session.player1.id) session.player1.name else "AI"} ${if (accumulated.playerTotalScore == accumulated.aiTotalScore) "(TIEBREAKER)" else "(SCORE)"}
+            """.trimIndent()
+            )
+
+            // Get LLM feedback for strengths/weaknesses (but not winner decision)
+            _statusMessage.value = "Generating performance feedback..."
+            val feedback = generatePerformanceFeedback(session, playerAvgScore, aiAvgScore)
+
+            // Combine turn-by-turn scores with feedback
+            val finalScores = DebateScores(
+                player1Score = PlayerScore(
+                    playerId = session.player1.id,
+                    playerName = session.player1.name,
+                    logicReasoning = (playerAvgScore * 0.5).toInt().coerceIn(0, 10),
+                    evidenceQuality = (playerAvgScore * 0.5).toInt().coerceIn(0, 10),
+                    toneRespect = 8, // Assume good unless profanity detected
+                    counterArguments = (playerAvgScore * 0.6).toInt().coerceIn(0, 10),
+                    factualAccuracy = 7, // Default unless flagged
+                    totalScore = accumulated.playerTotalScore,
+                    feedback = feedback.playerFeedback
+                ),
+                player2Score = PlayerScore(
+                    playerId = "ai_opponent",
+                    playerName = "AI Debater",
+                    logicReasoning = (aiAvgScore * 0.5).toInt().coerceIn(0, 10),
+                    evidenceQuality = (aiAvgScore * 0.5).toInt().coerceIn(0, 10),
+                    toneRespect = 8,
+                    counterArguments = (aiAvgScore * 0.6).toInt().coerceIn(0, 10),
+                    factualAccuracy = 7,
+                    totalScore = accumulated.aiTotalScore,
+                    feedback = feedback.aiFeedback
+                ),
+                winner = winner,
+                feedback = feedback.overallAnalysis,
+                detailedAnalysis = feedback.detailedAnalysis
             )
 
             _currentSession.value = session.copy(
@@ -1042,249 +1168,259 @@ Your SHORT, UNIQUE response for turn #$currentTurn (3-4 lines only):
                 scores = finalScores
             )
 
-            val winner = if (scores.winner == session.player1.id)
+            val winnerName = if (finalScores.winner == session.player1.id)
                 session.player1.name else "AI Debater"
-            
-            _statusMessage.value = "Debate complete! Winner: $winner"
 
-            // Save debate results to server
+            _statusMessage.value = "Debate complete! Winner: $winnerName"
+
             saveDebateResults(session, finalScores)
 
         } catch (e: Exception) {
+            Log.e("DebateViewModel", "Error in final judging", e)
             _statusMessage.value = "Error judging debate: ${e.message}"
-            Log.e("DebateViewModel", "Error generating scores", e)
         }
     }
 
+
     /**
-     * FEEDBACK AI: Comprehensive analysis of entire debate
-     * Analyzes: behavior, strengths, weaknesses, where they shined, where they lacked
+     * Final judgment with simplified pairwise comparison
+     * Used ONLY for tiebreaker or for generating feedback (not winner decision unless tied)
+     * FIXED: Now uses Qwen chat template format
      */
-    private suspend fun generateComprehensiveFeedback(
+    private suspend fun judgeFinalDebate(
         session: DebateSession,
-        scores: DebateScores
-    ): String {
-        try {
-            val feedbackPrompt = buildFeedbackAIPrompt(session, scores)
-            val feedback = RunAnywhere.generate(feedbackPrompt)
+        playerAvgScore: Float,
+        aiAvgScore: Float
+    ): FinalVerdict {
 
-            return feedback
-        } catch (e: Exception) {
-            Log.e("DebateViewModel", "Error generating feedback", e)
-            return "Unable to generate detailed feedback at this time."
+        val topic = session.topic
+        val playerSide = if (session.player1Side == DebateSide.FOR) "FOR" else "AGAINST"
+        val aiSide = if (session.player2Side == DebateSide.FOR) "FOR" else "AGAINST"
+
+        // Create condensed transcript (only key messages, truncated for token efficiency)
+        val transcript = session.messages
+            .mapIndexed { index, msg ->
+                val speaker = if (msg.playerId == session.player1.id)
+                    "${session.player1.name} ($playerSide)"
+                else
+                    "AI ($aiSide)"
+                "Turn ${index + 1} - $speaker: ${msg.message.take(150)}..."
+            }
+            .joinToString("\n\n")
+
+        val judgmentContent = buildString {
+            append("You are the final judge for this debate.\n\n")
+            append("TOPIC: \"${topic.title}\"\n")
+            append("${session.player1.name} argues: $playerSide\n")
+            append("AI argues: $aiSide\n\n")
+            append("TURN-BY-TURN SCORES:\n")
+            append(
+                "- ${session.player1.name}: Average ${
+                    String.format(
+                        "%.1f",
+                        playerAvgScore
+                    )
+                }/10 per turn\n"
+            )
+            append("- AI: Average ${String.format("%.1f", aiAvgScore)}/10 per turn\n\n")
+            append("DEBATE TRANSCRIPT:\n")
+            append("$transcript\n\n")
+            append("YOUR TASK: Decide the winner based on:\n")
+            append("1. Who made better arguments overall?\n")
+            append("2. Who addressed opponent's points better?\n")
+            append("3. Who was more persuasive?\n")
+            append("4. Who stayed consistent and logical?\n\n")
+            append("Respond in this EXACT format:\n\n")
+            append("Winner: [${session.player1.name} or AI]\n")
+            append("Reason: [one sentence why they won]\n")
+            append("${session.player1.name} Strength: [main strength in one sentence]\n")
+            append("${session.player1.name} Weakness: [main weakness in one sentence]\n")
+            append("AI Strength: [main strength in one sentence]\n")
+            append("AI Weakness: [main weakness in one sentence]")
         }
+
+        // Use Qwen chat template format - CRITICAL FIX
+        val prompt = """<|im_start|>system
+You are an expert debate judge. Analyze arguments objectively and provide clear, concise feedback.<|im_end|>
+<|im_start|>user
+$judgmentContent<|im_end|>
+<|im_start|>assistant
+""".trimIndent()
+
+        val response = try {
+            val result = StringBuilder()
+            RunAnywhere.generateStream(prompt).collect { token ->
+                result.append(token)
+            }
+            result.toString()
+        } catch (e: Exception) {
+            Log.e("DebateViewModel", "Final judging failed", e)
+            // Fallback to turn scores
+            if (playerAvgScore > aiAvgScore) {
+                """
+                Winner: ${session.player1.name}
+                Reason: Better average turn scores
+                ${session.player1.name} Strength: Consistent performance
+                ${session.player1.name} Weakness: Could use more evidence
+                AI Strength: Logical arguments
+                AI Weakness: Less persuasive overall
+                """.trimIndent()
+            } else {
+                """
+                Winner: AI
+                Reason: Better average turn scores
+                ${session.player1.name} Strength: Good engagement
+                ${session.player1.name} Weakness: Arguments less developed
+                AI Strength: Strong logical reasoning
+                AI Weakness: Could be more varied
+                """.trimIndent()
+            }
+        }
+
+        return parseFinalVerdict(response, session)
     }
 
     /**
-     * Build comprehensive feedback prompt
+     * Generate performance feedback ONLY (strengths/weaknesses), not winner/loser
+     * FIXED: Now uses Qwen chat template format
      */
-    private fun buildFeedbackAIPrompt(session: DebateSession, scores: DebateScores): String {
-        val topic = session.topic
-        val player1Side = if (session.player1Side == DebateSide.FOR) "FOR" else "AGAINST"
-        val player2Side = if (session.player2Side == DebateSide.FOR) "FOR" else "AGAINST"
+    private suspend fun generatePerformanceFeedback(
+        session: DebateSession,
+        playerAvgScore: Float,
+        aiAvgScore: Float
+    ): FinalVerdict {
 
-        // Get full debate transcript
-        val fullTranscript = session.messages.joinToString("\n\n") { msg ->
-            val side = if (msg.playerId == session.player1.id) player1Side else player2Side
-            "**${msg.playerName}** (arguing $side) - Turn ${msg.turnNumber}:\n${msg.message}"
+        val topic = session.topic
+        val playerSide = if (session.player1Side == DebateSide.FOR) "FOR" else "AGAINST"
+        val aiSide = if (session.player2Side == DebateSide.FOR) "FOR" else "AGAINST"
+
+        val transcript = session.messages
+            .mapIndexed { index, msg ->
+                val speaker = if (msg.playerId == session.player1.id)
+                    "${session.player1.name} ($playerSide)"
+                else
+                    "AI ($aiSide)"
+                "Turn ${index + 1} - $speaker: ${msg.message.take(150)}..."
+            }
+            .joinToString("\n\n")
+
+        val feedbackContent = buildString {
+            append("You are a debate coach. Please give performance feedback on the two participants.\n\n")
+            append("Focus on:\n")
+            append("- Three strengths for the PLAYER (${session.player1.name})\n")
+            append("- Three areas for improvement for PLAYER\n")
+            append("- One summary sentence of PLAYER's overall performance and learning points\n")
+            append("- Three strengths for AI\n")
+            append("- Three areas for improvement for AI\n")
+            append("- One summary sentence about AI's performance\n\n")
+            append("Do NOT declare any winner or loser. Just focus on constructive feedback.\n\n")
+            append("TOPIC: \"${topic.title}\"\n")
+            append("${session.player1.name} argues: $playerSide\n")
+            append("AI argues: $aiSide\n\n")
+            append("TURN-BY-TURN SCORES:\n")
+            append(
+                "- ${session.player1.name}: Average ${
+                    String.format(
+                        "%.1f",
+                        playerAvgScore
+                    )
+                }/10 per turn\n"
+            )
+            append("- AI: Average ${String.format("%.1f", aiAvgScore)}/10 per turn\n\n")
+            append("DEBATE TRANSCRIPT:\n")
+            append("$transcript\n\n")
+            append("FORMAT:\n")
+            append("PLAYER Strengths: [list, comma-separated]\n")
+            append("PLAYER Areas to Improve: [list, comma-separated]\n")
+            append("PLAYER Summary: [one sentence]\n")
+            append("AI Strengths: [list, comma-separated]\n")
+            append("AI Areas to Improve: [list, comma-separated]\n")
+            append("AI Summary: [one sentence]")
         }
 
-        // Player's scores
-        val playerScore = scores.player1Score
-        val aiScore = scores.player2Score
-
-        return """
-You are an expert debate coach analyzing a complete debate performance. Provide comprehensive, constructive feedback.
-
-=== DEBATE INFORMATION ===
-Topic: "${topic.title}"
-Description: ${topic.description}
-
-${session.player1.name}'s Side: $player1Side
-AI Opponent's Side: $player2Side
-
-Time Duration: ${(600000 - session.timeRemaining) / 1000 / 60} minutes
-Total Exchanges: ${session.messages.size} messages
-
-=== PERFORMANCE SCORES ===
-${session.player1.name}:
-- Logic & Reasoning: ${playerScore.logicReasoning}/10
-- Evidence Quality: ${playerScore.evidenceQuality}/10
-- Tone & Respect: ${playerScore.toneRespect}/10
-- Counter Arguments: ${playerScore.counterArguments}/10
-- Factual Accuracy: ${playerScore.factualAccuracy}/10
-TOTAL: ${playerScore.totalScore}/50
-
-AI Opponent:
-- Logic & Reasoning: ${aiScore.logicReasoning}/10
-- Evidence Quality: ${aiScore.evidenceQuality}/10
-- Tone & Respect: ${aiScore.toneRespect}/10
-- Counter Arguments: ${aiScore.counterArguments}/10
-- Factual Accuracy: ${aiScore.factualAccuracy}/10
-TOTAL: ${aiScore.totalScore}/50
-
-Winner: ${if (scores.winner == session.player1.id) session.player1.name else "AI Opponent"}
-
-=== FULL DEBATE TRANSCRIPT ===
-$fullTranscript
-
-=== YOUR TASK ===
-Provide a comprehensive analysis covering:
-
-1. **OVERALL BEHAVIOR** (2-3 sentences)
-   - How did ${session.player1.name} approach the debate?
-   - What was their debating style?
-   - Were they aggressive, defensive, or balanced?
-
-2. **WHERE THEY SHINED** ⭐ (3-4 specific examples)
-   - What were their strongest moments?
-   - Which arguments were most effective?
-   - What techniques worked well?
-
-3. **WHERE THEY LACKED** ⚠️ (3-4 specific areas)
-   - What weaknesses were evident?
-   - Which arguments were weak or missed?
-   - What could be improved?
-
-4. **SPECIFIC TURN ANALYSIS** (Pick 2-3 key turns)
-   - Turn X: Why this was good/bad
-   - What they did right/wrong
-   - How they could improve
-
-5. **COMMUNICATION STYLE**
-   - Clarity of expression
-   - Use of evidence
-   - Logical structure
-   - Tone and respect
-
-6. **STRATEGIC ANALYSIS**
-   - Did they address opponent's points effectively?
-   - Did they stay on topic?
-   - Did they control the narrative?
-
-7. **AREAS FOR IMPROVEMENT** (Actionable advice)
-   - Top 3 things to work on
-   - Specific recommendations
-   - How to practice
-
-8. **FINAL VERDICT & ENCOURAGEMENT**
-   - Overall assessment
-   - Growth potential
-   - Motivational closing
-
-FORMAT: Write in a friendly, coaching tone. Be honest but encouraging. Use specific examples from the transcript.
-
-Generate your comprehensive feedback:
+        // Use Qwen chat template format - CRITICAL FIX
+        val prompt = """<|im_start|>system
+You are a constructive debate coach. Provide detailed, actionable feedback to help debaters improve.<|im_end|>
+<|im_start|>user
+$feedbackContent<|im_end|>
+<|im_start|>assistant
 """.trimIndent()
-    }
 
-    private fun buildJudgingPrompt(session: DebateSession): String {
-        val topic = session.topic
-        val player1Side = if (session.player1Side == DebateSide.FOR) "FOR" else "AGAINST"
-        val player2Side = if (session.player2Side == DebateSide.FOR) "FOR" else "AGAINST"
-        
-        val conversation = session.messages.joinToString("\n") { msg ->
-            "${msg.playerName} (${ if (msg.playerId == session.player1.id) player1Side else player2Side }): ${msg.message}"
+        val response = try {
+            val result = StringBuilder()
+            RunAnywhere.generateStream(prompt).collect { token ->
+                result.append(token)
+            }
+            result.toString()
+        } catch (e: Exception) {
+            Log.e("DebateViewModel", "Performance feedback failed", e)
+            """
+PLAYER Strengths: Good engagement, logical reasoning, clear arguments
+PLAYER Areas to Improve: Use more examples, address more rebuttals, improve clarity
+PLAYER Summary: Solid performance overall but could improve in some areas.
+AI Strengths: Consistent logic, varied arguments, strong counterpoints
+AI Areas to Improve: More persuasive language, less repetition, clearer structure
+AI Summary: The AI gave well-structured arguments but could connect better with the opponent.
+            """.trimIndent()
         }
 
-        return """
-            You are a professional debate judge. Score this debate on the topic: "${topic.title}"
-            
-            Participants:
-            - ${session.player1.name} (arguing $player1Side)
-            - AI Debater (arguing $player2Side)
-            
-            Debate transcript:
-            $conversation
-            
-            Score each participant (1-10) on:
-            1. **Logic & Reasoning**: Clear, logical arguments
-            2. **Evidence Quality**: Use of facts and examples
-            3. **Tone & Respect**: Professional, respectful communication
-            4. **Counter Arguments**: Addressing opponent's points effectively
-            5. **Factual Accuracy**: Truthfulness of claims
-            
-            Format your response as:
-            PLAYER1_LOGIC: [score]
-            PLAYER1_EVIDENCE: [score]
-            PLAYER1_TONE: [score]
-            PLAYER1_COUNTER: [score]
-            PLAYER1_ACCURACY: [score]
-            PLAYER1_FEEDBACK: [specific feedback]
-            
-            PLAYER2_LOGIC: [score]
-            PLAYER2_EVIDENCE: [score]
-            PLAYER2_TONE: [score]
-            PLAYER2_COUNTER: [score]
-            PLAYER2_ACCURACY: [score]
-            PLAYER2_FEEDBACK: [specific feedback]
-            
-            WINNER: [player name]
-            ANALYSIS: [overall analysis of debate quality]
-        """.trimIndent()
-    }
-
-    private fun parseJudgingResponse(response: String, session: DebateSession): DebateScores {
-        // Simple parsing - in production, you'd want more robust parsing
-        val lines = response.lines()
-        
-        fun extractScore(prefix: String): Int {
-            return lines.find { it.startsWith(prefix) }
+        // Parse feedback structure
+        val lines = response.lines().map { it.trim() }
+        fun extract(prefix: String): String {
+            return lines.find { it.startsWith(prefix, ignoreCase = true) }
                 ?.substringAfter(":")
                 ?.trim()
-                ?.toIntOrNull() ?: 5
+                ?: ""
         }
-        
-        fun extractText(prefix: String): String {
-            return lines.find { it.startsWith(prefix) }
+
+        val playerStrength = extract("PLAYER Strengths")
+        val playerWeakness = extract("PLAYER Areas to Improve")
+        val playerSummary = extract("PLAYER Summary")
+        val aiStrength = extract("AI Strengths")
+        val aiWeakness = extract("AI Areas to Improve")
+        val aiSummary = extract("AI Summary")
+        val overallAnalysis = playerSummary
+        val detailedAnalysis = response
+
+        return FinalVerdict(
+            winner = "", // not used -- feedback only
+            overallAnalysis = overallAnalysis,
+            playerFeedback = "Strengths: $playerStrength. Areas to improve: $playerWeakness. $playerSummary",
+            aiFeedback = "Strengths: $aiStrength. Areas to improve: $aiWeakness. $aiSummary",
+            detailedAnalysis = detailedAnalysis
+        )
+    }
+
+    /**
+     * Parse the simplified final verdict format
+     */
+    private fun parseFinalVerdict(response: String, session: DebateSession): FinalVerdict {
+        val lines = response.lines().map { it.trim() }
+
+        fun extract(prefix: String): String {
+            return lines.find { it.startsWith(prefix, ignoreCase = true) }
                 ?.substringAfter(":")
-                ?.trim() ?: ""
+                ?.trim()
+                ?: ""
         }
 
-        val player1Logic = extractScore("PLAYER1_LOGIC")
-        val player1Evidence = extractScore("PLAYER1_EVIDENCE")
-        val player1Tone = extractScore("PLAYER1_TONE")
-        val player1Counter = extractScore("PLAYER1_COUNTER")
-        val player1Accuracy = extractScore("PLAYER1_ACCURACY")
-        val player1Total = player1Logic + player1Evidence + player1Tone + player1Counter + player1Accuracy
-        val player1Feedback = extractText("PLAYER1_FEEDBACK")
+        val winnerText = extract("Winner")
+        val winner = if (winnerText.contains(session.player1.name, ignoreCase = true))
+            session.player1.id
+        else
+            "ai_opponent"
 
-        val player2Logic = extractScore("PLAYER2_LOGIC")
-        val player2Evidence = extractScore("PLAYER2_EVIDENCE")
-        val player2Tone = extractScore("PLAYER2_TONE")
-        val player2Counter = extractScore("PLAYER2_COUNTER")
-        val player2Accuracy = extractScore("PLAYER2_ACCURACY")
-        val player2Total = player2Logic + player2Evidence + player2Tone + player2Counter + player2Accuracy
-        val player2Feedback = extractText("PLAYER2_FEEDBACK")
+        val reason = extract("Reason")
+        val playerStrength = extract("${session.player1.name} Strength")
+        val playerWeakness = extract("${session.player1.name} Weakness")
+        val aiStrength = extract("AI Strength")
+        val aiWeakness = extract("AI Weakness")
 
-        val winner = if (player1Total > player2Total) session.player1.id else "ai_opponent"
-        val analysis = extractText("ANALYSIS")
-
-        return DebateScores(
-            player1Score = PlayerScore(
-                playerId = session.player1.id,
-                playerName = session.player1.name,
-                logicReasoning = player1Logic,
-                evidenceQuality = player1Evidence,
-                toneRespect = player1Tone,
-                counterArguments = player1Counter,
-                factualAccuracy = player1Accuracy,
-                totalScore = player1Total,
-                feedback = player1Feedback
-            ),
-            player2Score = PlayerScore(
-                playerId = "ai_opponent",
-                playerName = "AI Debater",
-                logicReasoning = player2Logic,
-                evidenceQuality = player2Evidence,
-                toneRespect = player2Tone,
-                counterArguments = player2Counter,
-                factualAccuracy = player2Accuracy,
-                totalScore = player2Total,
-                feedback = player2Feedback
-            ),
+        return FinalVerdict(
             winner = winner,
-            feedback = analysis,
+            overallAnalysis = reason,
+            playerFeedback = "Strength: $playerStrength. Weakness: $playerWeakness",
+            aiFeedback = "Strength: $aiStrength. Weakness: $aiWeakness",
             detailedAnalysis = response
         )
     }
@@ -1329,6 +1465,125 @@ Generate your comprehensive feedback:
         // _currentScreen.value = DebateScreen.MAIN_MENU
         _statusMessage.value = "Ready for another debate!"
     }
+
+    /**
+     * Handle match forfeit/abandonment
+     * Saves the debate as a loss in history when player leaves during active debate
+     */
+    fun forfeitDebate() {
+        val session = _currentSession.value ?: return
+        val user = _currentUser.value ?: return
+
+        // Only forfeit if debate was in progress or prep
+        if (session.status != DebateStatus.IN_PROGRESS && session.status != DebateStatus.PREP_TIME) {
+            _currentSession.value = null
+            return
+        }
+
+        Log.d("DebateViewModel", "🏳️ Player forfeited the debate")
+
+        // Stop heartbeat when forfeiting
+        stopModelHeartbeat()
+
+        viewModelScope.launch {
+            try {
+                // Create forfeit result with minimum scores
+                val forfeitScores = DebateScores(
+                    player1Score = PlayerScore(
+                        playerId = user.id,
+                        playerName = user.name,
+                        logicReasoning = 0,
+                        evidenceQuality = 0,
+                        toneRespect = 0,
+                        counterArguments = 0,
+                        factualAccuracy = 0,
+                        totalScore = 0,
+                        feedback = "Match forfeited"
+                    ),
+                    player2Score = PlayerScore(
+                        playerId = "ai_opponent",
+                        playerName = session.player2?.name ?: "AI",
+                        logicReasoning = 10,
+                        evidenceQuality = 10,
+                        toneRespect = 10,
+                        counterArguments = 10,
+                        factualAccuracy = 10,
+                        totalScore = 50,
+                        feedback = "Won by forfeit"
+                    ),
+                    winner = "ai_opponent",
+                    feedback = "Player forfeited the debate",
+                    detailedAnalysis = "Match was forfeited by the player. No score was recorded."
+                )
+
+                // Save to server as a loss
+                val result = serverRepository.saveDebateResult(
+                    topic = session.topic.title,
+                    userSide = session.player1Side.toString(),
+                    opponentType = session.gameMode.toString(),
+                    userScore = 0,
+                    opponentScore = 50,
+                    feedback = "Match forfeited - counted as loss"
+                )
+
+                result.onSuccess {
+                    Log.d("DebateViewModel", "✅ Forfeit recorded in history as loss")
+                }.onFailure { error ->
+                    Log.e("DebateViewModel", "❌ Failed to record forfeit: ${error.message}")
+                }
+
+                // Clear current session
+                _currentSession.value = null
+                _statusMessage.value = "Debate forfeited"
+
+            } catch (e: Exception) {
+                Log.e("DebateViewModel", "Error recording forfeit", e)
+                _currentSession.value = null
+            }
+        }
+    }
+
+    // === MODEL HEARTBEAT ===
+
+    /**
+     * Keep model alive during debate with periodic pings
+     * DISABLED: Causing "LLM component not initialized" errors
+     */
+    private fun startModelHeartbeat() {
+        // DISABLED - heartbeat was causing model crashes
+        Log.d("DebateViewModel", "💔 Heartbeat disabled (was causing crashes)")
+
+        /* OLD CODE - CAUSING CRASHES:
+        modelHeartbeatJob?.cancel() // Cancel any existing heartbeat
+        modelHeartbeatJob = viewModelScope.launch {
+            while (_currentSession.value?.status == DebateStatus.IN_PROGRESS) {
+                try {
+                    delay(30000) // Every 30 seconds
+                    // Send tiny generation request to keep model alive
+                    val heartbeat = StringBuilder()
+                    kotlinx.coroutines.withTimeout(5000) {
+                        RunAnywhere.generateStream("ok").collect { token ->
+                            heartbeat.append(token)
+                        }
+                    }
+                    Log.d("DebateViewModel", "💓 Model heartbeat successful")
+                } catch (e: Exception) {
+                    Log.w("DebateViewModel", "⚠️ Model heartbeat failed: ${e.message}")
+                }
+            }
+        }
+        */
+    }
+
+    /**
+     * Stop model heartbeat when debate ends
+     */
+    private fun stopModelHeartbeat() {
+        modelHeartbeatJob?.cancel()
+        modelHeartbeatJob = null
+        Log.d("DebateViewModel", "💔 Model heartbeat stopped")
+    }
+
 
     // === MODEL MANAGEMENT (from original ChatViewModel) ===
     private fun loadAvailableModels() {

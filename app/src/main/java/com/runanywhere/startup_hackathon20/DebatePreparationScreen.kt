@@ -28,12 +28,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.sin
+import kotlin.math.cos
+import kotlin.math.PI
+import kotlin.random.Random
 
 // Color Palette
 private val CyanPrimary = Color(0xFF00D9FF)
@@ -65,6 +71,223 @@ enum class PrepStage {
     READY              // Transition to debate
 }
 
+// ========== NEW: SHAKE CONTROLLER ==========
+class ShakeController {
+    val offset = Animatable(0f)
+
+    suspend fun shake() {
+        for (i in 0 until 8) {
+            offset.animateTo(
+                targetValue = if (i % 2 == 0) 10f else -10f,
+                animationSpec = tween(50)
+            )
+        }
+        offset.animateTo(0f)
+    }
+}
+
+@Composable
+fun rememberShakeController(): ShakeController {
+    return remember { ShakeController() }
+}
+
+// ========== NEW: SECTOR UTILITIES ==========
+fun getSectorIcon(description: String): String {
+    return when {
+        description.contains("AI", ignoreCase = true) -> "🤖"
+        description.contains("Climate", ignoreCase = true) -> "🌍"
+        description.contains("Health", ignoreCase = true) -> "❤️"
+        description.contains("Economics", ignoreCase = true) -> "💰"
+        description.contains("Geopolitics", ignoreCase = true) -> "🌐"
+        description.contains("Technology", ignoreCase = true) -> "💻"
+        description.contains("Education", ignoreCase = true) -> "📚"
+        description.contains("Space", ignoreCase = true) -> "🚀"
+        description.contains("Science", ignoreCase = true) -> "🔬"
+        description.contains("Social", ignoreCase = true) -> "👥"
+        else -> "📜"
+    }
+}
+
+fun getSectorColor(description: String): Color {
+    return when {
+        description.contains("AI", ignoreCase = true) -> Color(0xFF9D4EDD)
+        description.contains("Climate", ignoreCase = true) -> Color(0xFF4ADE80)
+        description.contains("Health", ignoreCase = true) -> Color(0xFFFF6B6B)
+        description.contains("Economics", ignoreCase = true) -> Color(0xFFFFD700)
+        description.contains("Geopolitics", ignoreCase = true) -> Color(0xFF00D9FF)
+        description.contains("Technology", ignoreCase = true) -> Color(0xFFFB923C)
+        description.contains("Education", ignoreCase = true) -> Color(0xFF60A5FA)
+        description.contains("Space", ignoreCase = true) -> Color(0xFFA78BFA)
+        description.contains("Science", ignoreCase = true) -> Color(0xFF10B981)
+        description.contains("Social", ignoreCase = true) -> Color(0xFFF59E0B)
+        else -> CyanPrimary
+    }
+}
+
+// ========== NEW: PROGRESS INDICATOR ==========
+@Composable
+fun PrepProgressIndicator(currentStage: PrepStage) {
+    val stages = PrepStage.values().filter { it != PrepStage.READY }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        stages.forEachIndexed { index, stage ->
+            val isActive = stage.ordinal <= currentStage.ordinal
+            val isCurrent = stage == currentStage
+
+            Box(
+                modifier = Modifier
+                    .size(if (isCurrent) 12.dp else 8.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isActive) CyanPrimary
+                        else TextGray.copy(alpha = 0.3f)
+                    )
+                    .animateContentSize()
+            )
+
+            if (index < stages.size - 1) {
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+        }
+    }
+}
+
+// ========== NEW: TYPEWRITER TEXT ==========
+@Composable
+fun TypewriterText(
+    text: String,
+    fontSize: TextUnit = 24.sp,
+    color: Color = TextWhite,
+    fontWeight: FontWeight = FontWeight.Bold,
+    textAlign: TextAlign = TextAlign.Center,
+    modifier: Modifier = Modifier
+) {
+    var visibleText by remember { mutableStateOf("") }
+
+    LaunchedEffect(text) {
+        text.forEachIndexed { index, _ ->
+            delay(30) // 30ms per character
+            visibleText = text.substring(0, index + 1)
+        }
+    }
+
+    Text(
+        text = visibleText,
+        fontSize = fontSize,
+        color = color,
+        fontWeight = fontWeight,
+        textAlign = textAlign,
+        lineHeight = 32.sp,
+        modifier = modifier
+    )
+}
+
+// ========== NEW: AI SPEECH BUBBLE ==========
+@Composable
+fun AISpeechBubble(
+    text: String,
+    aiColor: Color,
+    visible: Boolean
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + slideInVertically { it / 2 }
+    ) {
+        Card(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(0.85f),
+            shape = RoundedCornerShape(
+                topStart = 20.dp,
+                topEnd = 20.dp,
+                bottomStart = 4.dp,
+                bottomEnd = 20.dp
+            ),
+            colors = CardDefaults.cardColors(
+                containerColor = aiColor.copy(alpha = 0.2f)
+            ),
+            border = androidx.compose.foundation.BorderStroke(2.dp, aiColor)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "💬", fontSize = 20.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = text,
+                    fontSize = 14.sp,
+                    color = TextWhite,
+                    fontStyle = FontStyle.Italic
+                )
+            }
+        }
+    }
+}
+
+// ========== NEW: CAMERA ZOOM BOX ==========
+@Composable
+fun CameraZoomBox(
+    zoomIn: Boolean = false,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (zoomIn) 1.1f else 1f,
+        animationSpec = tween(600, easing = FastOutSlowInEasing),
+        label = "camera_zoom"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .scale(scale),
+        content = content
+    )
+}
+
+// ========== NEW: STAGE BACKGROUND COLOR ==========
+fun getStageColor(stage: PrepStage): Color {
+    return when (stage) {
+        PrepStage.VS_ANIMATION -> Color(0xFF1A1A2E)
+        PrepStage.TOPIC_REVEAL -> Color(0xFF2D1B4E) // Purple tint
+        PrepStage.SIDE_ASSIGNMENT -> Color(0xFF1E3A5F) // Blue tint
+        PrepStage.COIN_CHOICE -> Color(0xFF3D2E1F) // Gold tint
+        PrepStage.COIN_TOSS -> Color(0xFF3D2E1F)
+        PrepStage.COIN_RESULT -> Color(0xFF1F3D1F) // Green tint
+        PrepStage.COUNTDOWN -> Color(0xFF3D1F1F) // Red tint
+        else -> DarkBackground
+    }
+}
+
+@Composable
+fun AnimatedStageBackground(currentStage: PrepStage) {
+    val backgroundColor by animateColorAsState(
+        targetValue = getStageColor(currentStage),
+        animationSpec = tween(1000),
+        label = "background_color"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        backgroundColor,
+                        backgroundColor.copy(alpha = 0.7f),
+                        DarkBackground
+                    )
+                )
+            )
+    )
+}
+
 @Composable
 fun DebatePreparationScreen(
     playerName: String,
@@ -74,7 +297,7 @@ fun DebatePreparationScreen(
     playerSide: String,
     aiSide: String,
     gameMode: GameMode,
-    onPreparationComplete: (Boolean) -> Unit // true = player starts, false = AI starts
+    onPreparationComplete: (Boolean) -> Unit
 ) {
     var currentStage by remember { mutableStateOf(PrepStage.VS_ANIMATION) }
     var playerStarts by remember { mutableStateOf(false) }
@@ -90,7 +313,7 @@ fun DebatePreparationScreen(
             }
 
             PrepStage.TOPIC_REVEAL -> {
-                delay(3000) // 3 seconds topic reveal
+                delay(4000) // 4 seconds topic reveal (increased for typewriter)
                 currentStage = PrepStage.SIDE_ASSIGNMENT
             }
 
@@ -100,7 +323,8 @@ fun DebatePreparationScreen(
             }
 
             PrepStage.COIN_CHOICE -> {
-                // wait for player input
+                // AI Mode: wait for player input (coin choice)
+                // Player will click Heads or Tails button
             }
 
             PrepStage.COIN_TOSS -> {
@@ -115,6 +339,11 @@ fun DebatePreparationScreen(
                 // Player wins if their choice matches the coin result
                 playerStarts = (playerChoice == coinResult)
 
+                android.util.Log.d(
+                    "DebatePrep",
+                    "🪙 Coin toss: Player chose $playerChoice, coin landed $coinResult, player starts: $playerStarts"
+                )
+
                 delay(2500) // 2.5 seconds result display
                 currentStage = PrepStage.COUNTDOWN
             }
@@ -125,26 +354,35 @@ fun DebatePreparationScreen(
             }
 
             PrepStage.READY -> {
+                android.util.Log.d(
+                    "DebatePrep",
+                    "✅ Preparation complete, calling onPreparationComplete($playerStarts)"
+                )
                 onPreparationComplete(playerStarts)
             }
         }
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        DarkBackground,
-                        DarkSurface,
-                        DarkBackground
-                    )
-                )
-            )
+        modifier = Modifier.fillMaxSize()
     ) {
+        // Animated background with stage colors
+        AnimatedStageBackground(currentStage)
+
         // Animated background particles
         AnimatedBackgroundEffect()
+
+        // Progress indicator at top
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 16.dp),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            if (currentStage != PrepStage.READY) {
+                PrepProgressIndicator(currentStage)
+            }
+        }
 
         // Main content based on stage
         when (currentStage) {
@@ -162,6 +400,7 @@ fun DebatePreparationScreen(
 
             PrepStage.COIN_CHOICE -> {
                 CoinChoiceAnimation { choice ->
+                    android.util.Log.d("DebatePrep", "🎮 Player chose: $choice")
                     playerChoice = choice
                     currentStage = PrepStage.COIN_TOSS
                 }
@@ -234,81 +473,99 @@ fun VSHologramAnimation(
         else -> IntermediateAI
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        // Player Section
-        AnimatedVisibility(
-            visible = true,
-            enter = fadeIn(tween(1000)) + slideInVertically(tween(1000)) { -it }
+    // AI speech bubble
+    var showSpeech by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(1500)
+        showSpeech = true
+    }
+
+    CameraZoomBox(zoomIn = true) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            HologramPlayerCard(
-                name = playerName,
-                color = CyanPrimary,
-                glitchOffset = glitchOffset,
-                glowAlpha = glowAlpha,
-                icon = Icons.Default.Person
-            )
-        }
-
-        Spacer(modifier = Modifier.height(40.dp))
-
-        // VS Text with epic effect
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(120.dp)
-        ) {
-            // Outer glow ring
-            Canvas(modifier = Modifier.size(120.dp)) {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            CyanPrimary.copy(alpha = glowAlpha),
-                            Color.Transparent
-                        )
-                    ),
-                    radius = size.width / 2
-                )
-            }
-
-            // VS Text
-            Text(
-                text = "VS",
-                fontSize = 56.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = TextWhite,
-                modifier = Modifier.alpha(glowAlpha + 0.2f)
-            )
-
-            // Rotating ring
-            Canvas(modifier = Modifier.size(100.dp)) {
-                drawCircle(
+            // Player Section
+            AnimatedVisibility(
+                visible = true,
+                enter = fadeIn(tween(1000)) + slideInVertically(tween(1000)) { -it }
+            ) {
+                HologramPlayerCard(
+                    name = playerName,
                     color = CyanPrimary,
-                    radius = size.width / 2,
-                    style = Stroke(
-                        width = 3.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
-                    )
+                    glitchOffset = glitchOffset,
+                    glowAlpha = glowAlpha,
+                    icon = Icons.Default.Person
                 )
             }
-        }
 
-        Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
-        // AI Section
-        AnimatedVisibility(
-            visible = true,
-            enter = fadeIn(tween(1000, delayMillis = 300)) +
-                    slideInVertically(tween(1000, delayMillis = 300)) { it }
-        ) {
-            HologramPlayerCard(
-                name = aiName,
-                color = aiColor,
-                glitchOffset = -glitchOffset,
-                glowAlpha = glowAlpha,
-                icon = Icons.Default.Settings
+            // VS Text with epic effect
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(120.dp)
+            ) {
+                // Outer glow ring
+                Canvas(modifier = Modifier.size(120.dp)) {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                CyanPrimary.copy(alpha = glowAlpha),
+                                Color.Transparent
+                            )
+                        ),
+                        radius = size.width / 2
+                    )
+                }
+
+                // VS Text
+                Text(
+                    text = "VS",
+                    fontSize = 56.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = TextWhite,
+                    modifier = Modifier.alpha(glowAlpha + 0.2f)
+                )
+
+                // Rotating ring
+                Canvas(modifier = Modifier.size(100.dp)) {
+                    drawCircle(
+                        color = CyanPrimary,
+                        radius = size.width / 2,
+                        style = Stroke(
+                            width = 3.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            // AI Section
+            AnimatedVisibility(
+                visible = true,
+                enter = fadeIn(tween(1000, delayMillis = 300)) +
+                        slideInVertically(tween(1000, delayMillis = 300)) { it }
+            ) {
+                HologramPlayerCard(
+                    name = aiName,
+                    color = aiColor,
+                    glitchOffset = -glitchOffset,
+                    glowAlpha = glowAlpha,
+                    icon = Icons.Default.Settings
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // AI Speech Bubble
+            AISpeechBubble(
+                text = "Let's see what you've got!",
+                aiColor = aiColor,
+                visible = showSpeech
             )
         }
     }
@@ -439,98 +696,108 @@ fun TopicRevealAnimation(
         label = "rotation"
     )
 
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        // "Topic Revealed!" text
-        AnimatedVisibility(
-            visible = revealed,
-            enter = fadeIn() + expandVertically()
-        ) {
-            Text(
-                text = "📜 TOPIC REVEALED!",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = OrangeAccent,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(bottom = 32.dp)
-            )
+    // Get sector-specific icon and color
+    val sectorIcon = getSectorIcon(description)
+    val sectorColor = getSectorColor(description)
+
+    // AI speech bubble
+    var showSpeech by remember { mutableStateOf(false) }
+    LaunchedEffect(revealed) {
+        if (revealed) {
+            delay(2000)
+            showSpeech = true
         }
+    }
 
-        // Topic card with flip animation
-        Card(
-            modifier = Modifier
-                .padding(24.dp)
-                .scale(scale)
-                .rotate(rotation),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = DarkCard
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
-            border = androidx.compose.foundation.BorderStroke(
-                width = 2.dp,
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        CyanPrimary,
-                        PurpleAccent,
-                        OrangeAccent
-                    )
-                )
-            )
+    CameraZoomBox(zoomIn = revealed) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(
-                modifier = Modifier.padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            // "Topic Revealed!" text
+            AnimatedVisibility(
+                visible = revealed,
+                enter = fadeIn() + expandVertically()
             ) {
-                // Topic icon
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    CyanPrimary.copy(alpha = 0.3f),
-                                    Color.Transparent
-                                )
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = "Topic",
-                        tint = CyanPrimary,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Topic title
                 Text(
-                    text = topic,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
+                    text = "📜 TOPIC REVEALED!",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = OrangeAccent,
                     textAlign = TextAlign.Center,
-                    lineHeight = 32.sp
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Description
-                Text(
-                    text = description,
-                    fontSize = 14.sp,
-                    color = TextGray,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
+                    modifier = Modifier.padding(bottom = 32.dp)
                 )
             }
+
+            // Topic card with flip animation
+            Card(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .scale(scale)
+                    .rotate(rotation),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = DarkCard
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = 2.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            sectorColor,
+                            sectorColor.copy(alpha = 0.5f),
+                            CyanPrimary
+                        )
+                    )
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Sector icon (emoji)
+                    Text(
+                        text = sectorIcon,
+                        fontSize = 56.sp,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Topic title with typewriter effect
+                    if (revealed) {
+                        TypewriterText(
+                            text = topic,
+                            fontSize = 24.sp,
+                            color = TextWhite,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Description
+                    Text(
+                        text = description,
+                        fontSize = 14.sp,
+                        color = TextGray,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 20.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // AI Speech Bubble
+            AISpeechBubble(
+                text = "Interesting topic... I'm ready.",
+                aiColor = sectorColor,
+                visible = showSpeech
+            )
         }
     }
 }
@@ -548,6 +815,13 @@ fun SideAssignmentAnimation(
         GameMode.AI_INTERMEDIATE -> IntermediateAI
         GameMode.AI_ADVANCED -> AdvancedAI
         else -> IntermediateAI
+    }
+
+    // AI speech bubble
+    var showSpeech by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(1500)
+        showSpeech = true
     }
 
     Column(
@@ -591,6 +865,15 @@ fun SideAssignmentAnimation(
             color = aiColor,
             icon = Icons.Default.Settings,
             isPlayer = false
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // AI Speech Bubble
+        AISpeechBubble(
+            text = "I'll argue $aiSide, bring it on!",
+            aiColor = aiColor,
+            visible = showSpeech
         )
     }
 }
@@ -667,6 +950,13 @@ fun SideCard(
 
 @Composable
 fun CoinChoiceAnimation(onChoice: (String) -> Unit) {
+    // AI speech bubble
+    var showSpeech by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(800)
+        showSpeech = true
+    }
+
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -722,6 +1012,15 @@ fun CoinChoiceAnimation(onChoice: (String) -> Unit) {
             fontSize = 16.sp,
             color = TextGray,
             textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // AI Speech Bubble
+        AISpeechBubble(
+            text = "May the best debater win!",
+            aiColor = GoldCoin,
+            visible = showSpeech
         )
     }
 }
@@ -885,80 +1184,93 @@ fun CoinResultAnimation(playerChoice: String, coinResult: String, playerStarts: 
         label = "result_scale"
     )
 
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    // Screen shake effect
+    val shakeController = rememberShakeController()
+    LaunchedEffect(Unit) {
+        delay(200)
+        shakeController.shake()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .offset(x = shakeController.offset.value.dp)
     ) {
-        // Result Icon
-        Text(
-            text = if (playerStarts) "🎉" else "😔",
-            fontSize = 80.sp,
-            modifier = Modifier
-                .padding(bottom = 24.dp)
-                .scale(scale)
-        )
-
-        // Winner Announcement
-        Card(
-            modifier = Modifier
-                .padding(24.dp)
-                .fillMaxWidth(0.9f)
-                .shadow(12.dp, RoundedCornerShape(20.dp)),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (playerStarts)
-                    GreenWin.copy(alpha = 0.2f)
-                else
-                    RedLoss.copy(alpha = 0.2f)
-            ),
-            border = androidx.compose.foundation.BorderStroke(
-                width = 3.dp,
-                color = if (playerStarts) GreenWin else RedLoss
-            )
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(
-                modifier = Modifier.padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = if (playerStarts) "🎊 YOU WIN! 🎊" else "AI WINS!",
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (playerStarts) GreenWin else RedLoss,
-                    textAlign = TextAlign.Center
-                )
+            // Result Icon
+            Text(
+                text = if (playerStarts) "🎉" else "😔",
+                fontSize = 80.sp,
+                modifier = Modifier
+                    .padding(bottom = 24.dp)
+                    .scale(scale)
+            )
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "You chose: $playerChoice",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = TextWhite,
-                    textAlign = TextAlign.Center
-                )
-
-                Text(
-                    text = "Coin landed: $coinResult",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = TextWhite,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = if (playerStarts)
-                        "✨ You'll start the debate first!"
+            // Winner Announcement
+            Card(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .fillMaxWidth(0.9f)
+                    .shadow(12.dp, RoundedCornerShape(20.dp)),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (playerStarts)
+                        GreenWin.copy(alpha = 0.2f)
                     else
-                        "🤖 AI will start the debate first!",
-                    fontSize = 16.sp,
-                    color = TextGray,
-                    textAlign = TextAlign.Center
+                        RedLoss.copy(alpha = 0.2f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = 3.dp,
+                    color = if (playerStarts) GreenWin else RedLoss
                 )
+            ) {
+                Column(
+                    modifier = Modifier.padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = if (playerStarts) "🎊 YOU WIN! 🎊" else "AI WINS!",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (playerStarts) GreenWin else RedLoss,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "You chose: $playerChoice",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextWhite,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Text(
+                        text = "Coin landed: $coinResult",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextWhite,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = if (playerStarts)
+                            "✨ You'll start the debate first!"
+                        else
+                            "🤖 AI will start the debate first!",
+                        fontSize = 16.sp,
+                        color = TextGray,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         }
     }
@@ -988,67 +1300,99 @@ fun CountdownAnimation(
         label = "countdown_scale"
     )
 
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        // Result announcement
-        Card(
+    // Screen shake effect on each countdown number
+    val shakeController = rememberShakeController()
+    LaunchedEffect(countdownNumber) {
+        if (countdownNumber > 0) {
+            shakeController.shake()
+        }
+    }
+
+    // AI speech bubble
+    var showSpeech by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(800)
+        showSpeech = true
+    }
+
+    CameraZoomBox(zoomIn = countdownNumber <= 0) {
+        Box(
             modifier = Modifier
-                .padding(24.dp)
-                .fillMaxWidth(0.9f),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (playerStarts) CyanPrimary.copy(alpha = 0.2f)
-                else IntermediateAI.copy(alpha = 0.2f)
-            )
+                .fillMaxSize()
+                .offset(x = shakeController.offset.value.dp)
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    text = if (playerStarts) "🎉 You Start First!" else "🤖 AI Starts First!",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = if (playerStarts) playerName else aiName,
-                    fontSize = 18.sp,
-                    color = if (playerStarts) CyanPrimary else IntermediateAI
+                // Result announcement
+                Card(
+                    modifier = Modifier
+                        .padding(24.dp)
+                        .fillMaxWidth(0.9f),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (playerStarts) CyanPrimary.copy(alpha = 0.2f)
+                        else IntermediateAI.copy(alpha = 0.2f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = if (playerStarts) "🎉 You Start First!" else "🤖 AI Starts First!",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (playerStarts) playerName else aiName,
+                            fontSize = 18.sp,
+                            color = if (playerStarts) CyanPrimary else IntermediateAI
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(64.dp))
+
+                // Countdown number
+                if (countdownNumber > 0) {
+                    Text(
+                        text = countdownNumber.toString(),
+                        fontSize = 120.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = CyanPrimary,
+                        modifier = Modifier.scale(scale)
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        text = "Get Ready!",
+                        fontSize = 20.sp,
+                        color = TextGray
+                    )
+                } else {
+                    Text(
+                        text = "BEGIN!",
+                        fontSize = 72.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = GreenWin,
+                        modifier = Modifier.scale(scale)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // AI Speech Bubble
+                AISpeechBubble(
+                    text = "3... 2... 1... Time to debate!",
+                    aiColor = CyanPrimary,
+                    visible = showSpeech
                 )
             }
-        }
-
-        Spacer(modifier = Modifier.height(64.dp))
-
-        // Countdown number
-        if (countdownNumber > 0) {
-            Text(
-                text = countdownNumber.toString(),
-                fontSize = 120.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = CyanPrimary,
-                modifier = Modifier.scale(scale)
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = "Get Ready!",
-                fontSize = 20.sp,
-                color = TextGray
-            )
-        } else {
-            Text(
-                text = "BEGIN!",
-                fontSize = 72.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = GreenWin,
-                modifier = Modifier.scale(scale)
-            )
         }
     }
 }

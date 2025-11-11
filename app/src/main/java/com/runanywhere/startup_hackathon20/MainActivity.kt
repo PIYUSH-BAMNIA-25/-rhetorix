@@ -2,6 +2,7 @@ package com.runanywhere.startup_hackathon20
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -24,6 +25,12 @@ import com.runanywhere.startup_hackathon20.AuthViewModel
 import com.runanywhere.startup_hackathon20.DebateViewModel
 import com.runanywhere.startup_hackathon20.UserProfile
 import kotlinx.coroutines.launch
+import android.app.Activity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,6 +54,12 @@ sealed class Screen {
     object DebateActive : Screen()
     object DebateResults : Screen()
     object ChangePassword : Screen()
+
+    // P2P Screens
+    object Matchmaking : Screen()
+    object P2PDebatePreparation : Screen()
+    object P2PDebateActive : Screen()
+    object P2PDebateResults : Screen()
 }
 
 @Composable
@@ -54,17 +67,92 @@ fun AppNavigation() {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Auth) }
     var currentUser by remember { mutableStateOf<UserData?>(null) }
     var userId by remember { mutableStateOf<String?>(null) }
-    
+    var showExitDialog by remember { mutableStateOf(false) }
+    var showDebateExitDialog by remember { mutableStateOf(false) }
+
+    // P2P state
+    var p2pSessionId by remember { mutableStateOf<String?>(null) }
+
     // Add loading state
     var isInitializing by remember { mutableStateOf(true) }
 
     // Initialize ViewModels
     val authViewModel: AuthViewModel = viewModel()
     val debateViewModel: DebateViewModel = viewModel()
+    val matchmakingViewModel: MatchmakingViewModel = viewModel()
+    val p2pViewModel: P2PDebateViewModel = viewModel()
     
     // Add coroutine scope
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val activity = context as? Activity
+
+    // Handle system back button
+    BackHandler(enabled = true) {
+        when (currentScreen) {
+            Screen.Auth -> {
+                // On auth screen, show exit dialog
+                showExitDialog = true
+            }
+
+            Screen.Home -> {
+                // On home screen, show exit dialog
+                showExitDialog = true
+            }
+
+            Screen.ModelSetup -> {
+                // Go back to home
+                debateViewModel.resetModelDownloadFlag()
+                currentScreen = Screen.Home
+            }
+
+            Screen.AIModeSelection -> {
+                // Go back to home
+                currentScreen = Screen.Home
+            }
+
+            Screen.DebatePreparation -> {
+                // Ask for confirmation before leaving debate
+                showDebateExitDialog = true
+            }
+
+            Screen.DebateActive -> {
+                // Ask for confirmation before leaving active debate
+                showDebateExitDialog = true
+            }
+
+            Screen.DebateResults -> {
+                // Go back to home from results
+                currentScreen = Screen.Home
+            }
+
+            Screen.ChangePassword -> {
+                // Go back to home (profile page)
+                currentScreen = Screen.Home
+            }
+
+            // P2P Screens
+            Screen.Matchmaking -> {
+                // Ask for confirmation before leaving matchmaking
+                showDebateExitDialog = true
+            }
+
+            Screen.P2PDebatePreparation -> {
+                // Ask for confirmation before leaving P2P prep
+                showDebateExitDialog = true
+            }
+
+            Screen.P2PDebateActive -> {
+                // Ask for confirmation before leaving P2P debate
+                showDebateExitDialog = true
+            }
+
+            Screen.P2PDebateResults -> {
+                // Go back to home from P2P results
+                currentScreen = Screen.Home
+            }
+        }
+    }
 
     // Observe auth state from AuthViewModel (handles server auto-login)
     val authState by authViewModel.authState.collectAsState()
@@ -94,6 +182,14 @@ fun AppNavigation() {
                 isInitializing = false
                 android.util.Log.d("MainActivity", "ℹ️ No logged in user, showing auth screen")
             }
+
+            is AuthState.SignUpSuccess -> {
+                // Sign up successful, stay on auth screen (will show login)
+                currentScreen = Screen.Auth
+                isInitializing = false
+                android.util.Log.d("MainActivity", "✅ Sign up successful")
+            }
+
             is AuthState.Error -> {
                 // Error checking login
                 currentScreen = Screen.Auth
@@ -154,6 +250,33 @@ fun AppNavigation() {
             // Reset the flag
             debateViewModel.resetModelDownloadFlag()
         }
+    }
+
+    // Exit App Dialog
+    if (showExitDialog) {
+        ExitConfirmationDialog(
+            onConfirm = {
+                activity?.finish()
+            },
+            onDismiss = {
+                showExitDialog = false
+            }
+        )
+    }
+
+    // Exit Debate Dialog
+    if (showDebateExitDialog) {
+        ExitDebateDialog(
+            onConfirm = {
+                showDebateExitDialog = false
+                // Record forfeit before leaving
+                debateViewModel.forfeitDebate()
+                currentScreen = Screen.Home
+            },
+            onDismiss = {
+                showDebateExitDialog = false
+            }
+        )
     }
 
     // Show loading screen while initializing
@@ -223,9 +346,8 @@ fun AppNavigation() {
                     onModeSelected = { mode ->
                         when (mode) {
                             GameMode.PVP -> {
-                                // P2P: Skip mode selection, start debate directly
-                                debateViewModel.startDebate(GameMode.PVP)
-                                // Navigation will happen automatically via LaunchedEffect
+                                // P2P: Go to matchmaking
+                                currentScreen = Screen.Matchmaking
                             }
                             else -> {
                                 // AI: Go to mode selection first
@@ -291,12 +413,15 @@ fun AppNavigation() {
 
         // 6. DEBATE ACTIVE (Chat screen with AI)
         Screen.DebateActive -> {
+            val session by debateViewModel.currentSession.collectAsState()
+
             DebateActiveScreen(
-                viewModel = debateViewModel
+                gameMode = session?.gameMode
+                    ?: GameMode.AI_INTERMEDIATE, // Get actual mode from session
+                aiViewModel = debateViewModel
             )
 
             // Listen for debate completion
-            val session by debateViewModel.currentSession.collectAsState()
             LaunchedEffect(session?.status) {
                 if (session?.status == DebateStatus.FINISHED) {
                     currentScreen = Screen.DebateResults
@@ -345,6 +470,102 @@ fun AppNavigation() {
                     currentScreen = Screen.Home
                 }
             )
+        }
+
+        // 9. P2P Screens
+        Screen.Matchmaking -> {
+            currentUser?.let { user ->
+                val createdSessionId by matchmakingViewModel.createdSessionId.collectAsState()
+
+                // Auto-navigate when session is created
+                LaunchedEffect(createdSessionId) {
+                    createdSessionId?.let { sessionId ->
+                        p2pSessionId = sessionId
+                        currentScreen = Screen.P2PDebatePreparation
+                    }
+                }
+
+                MatchmakingScreen(
+                    playerName = "${user.firstName} ${user.lastName}",
+                    onMatchFound = { _, _ -> /* Handled by LaunchedEffect */ },
+                    onCancel = {
+                        currentScreen = Screen.Home
+                    },
+                    viewModel = matchmakingViewModel
+                )
+
+                // Start matchmaking automatically
+                LaunchedEffect(Unit) {
+                    matchmakingViewModel.startMatchmaking(
+                        playerId = user.playerId.toString(),
+                        playerName = "${user.firstName} ${user.lastName}"
+                    )
+                }
+            }
+        }
+
+        Screen.P2PDebatePreparation -> {
+            currentUser?.let { user ->
+                p2pSessionId?.let { sessionId ->
+                    P2PDebatePreparationScreen(
+                        sessionId = sessionId,
+                        currentUserId = user.playerId.toString(),
+                        currentUserName = "${user.firstName} ${user.lastName}",
+                        onPreparationComplete = {
+                            currentScreen = Screen.P2PDebateActive
+                        },
+                        p2pViewModel = p2pViewModel
+                    )
+                }
+            }
+        }
+
+        Screen.P2PDebateActive -> {
+            currentUser?.let { user ->
+                p2pSessionId?.let { sessionId ->
+                    P2PDebateActiveScreen(
+                        sessionId = sessionId,
+                        currentUserId = user.playerId.toString(),
+                        currentUserName = "${user.firstName} ${user.lastName}",
+                        onDebateFinished = {
+                            currentScreen = Screen.P2PDebateResults
+                        },
+                        p2pViewModel = p2pViewModel
+                    )
+                }
+            }
+        }
+
+        Screen.P2PDebateResults -> {
+            currentUser?.let { user ->
+                val finalScores by p2pViewModel.finalScores.collectAsState()
+                val myStrengths by p2pViewModel.myStrengths.collectAsState()
+                val myWeaknesses by p2pViewModel.myWeaknesses.collectAsState()
+                val sessionData by p2pViewModel.sessionData.collectAsState()
+                val opponentName by p2pViewModel.opponentName.collectAsState()
+
+                if (finalScores != null && sessionData != null) {
+                    P2PDebateResultsScreen(
+                        myName = "${user.firstName} ${user.lastName}",
+                        opponentName = opponentName ?: "Opponent",
+                        myScore = finalScores!!.first,
+                        opponentScore = finalScores!!.second,
+                        iWon = finalScores!!.first > finalScores!!.second,
+                        myStrengths = myStrengths,
+                        myWeaknesses = myWeaknesses,
+                        topic = sessionData!!.topic_title,
+                        onRematch = {
+                            // Reset and go back to matchmaking
+                            p2pSessionId = null
+                            currentScreen = Screen.Matchmaking
+                        },
+                        onBackToMenu = {
+                            p2pSessionId = null
+                            currentScreen = Screen.Home
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -422,6 +643,86 @@ fun extractFeedbackPoints(detailedAnalysis: String): Pair<List<String>, List<Str
         shiningPoints.take(3),
         lackingPoints.take(3)
     )
+}
+
+@Composable
+fun ExitConfirmationDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Exit App",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Are you sure you want to exit Retrorix?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel")
+                    }
+                    Button(onClick = onConfirm) {
+                        Text("Exit")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExitDebateDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Leave Debate",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Are you sure you want to leave this debate? You won't be able to rejoin.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Stay")
+                    }
+                    Button(onClick = onConfirm) {
+                        Text("Leave")
+                    }
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

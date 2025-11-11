@@ -112,6 +112,16 @@ data class AccumulatedScores(
     val aiTurnCount: Int
 )
 
+// Final Verdict from Comprehensive Judging
+@Serializable
+data class FinalVerdict(
+    val winner: String, // player ID
+    val overallAnalysis: String,
+    val playerFeedback: String,
+    val aiFeedback: String,
+    val detailedAnalysis: String
+)
+
 // Chat History for Judging Context
 @Serializable
 data class ChatTurn(

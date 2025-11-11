@@ -38,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.runanywhere.startup_hackathon20.data.DifficultyLevel
 import kotlin.math.cos
 import kotlin.math.sin
+import androidx.activity.compose.BackHandler
 
 // Elegant Dark Theme Color Palette with Golden Accents
 private val DeepBlack = Color(0xFF0D0D12)
@@ -65,8 +66,8 @@ fun AIPracticeModeScreen(
     onBack: () -> Unit
 ) {
     var showUnlockDialog by remember { mutableStateOf<DifficultyLevel?>(null) }
-    var selectedGameMode by remember { mutableStateOf<GameMode?>(null) }
     var showModelDownloadDialog by remember { mutableStateOf(false) }
+    var pendingGameMode by remember { mutableStateOf<GameMode?>(null) }
     
     // Get DebateViewModel to access model management
     val debateViewModel: DebateViewModel = viewModel()
@@ -75,23 +76,55 @@ fun AIPracticeModeScreen(
     val currentModelId by debateViewModel.currentModelId.collectAsState()
     val statusMessage by debateViewModel.statusMessage.collectAsState()
 
-    // Check if required model is downloaded and loaded
-    LaunchedEffect(selectedGameMode, availableModels, currentModelId) {
-        selectedGameMode?.let { mode ->
-            val requiredModelName = when (mode) {
-                GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"
-                GameMode.AI_INTERMEDIATE, GameMode.AI_ADVANCED -> "Qwen 2.5 3B Instruct Q6_K"
-                else -> null
-            }
-            
-            requiredModelName?.let { modelName ->
-                val model = availableModels.find { it.name == modelName }
-                if (model != null && model.isDownloaded && currentModelId == model.id) {
-                    // Model is ready! Proceed with debate
-                    showModelDownloadDialog = false
-                    onDifficultySelected(mode)
-                    selectedGameMode = null // Reset
-                }
+    // Handle back button
+    BackHandler {
+        onBack()
+    }
+
+    // Function to check model and start game
+    fun checkModelAndStart(gameMode: GameMode) {
+        // Cancel any previous pending mode
+        pendingGameMode = null
+
+        // Check if model is ready
+        val requiredModelName = "Qwen 2.5 3B Instruct Q6_K"
+        val requiredModel = availableModels.find { it.name == requiredModelName }
+
+        if (requiredModel != null && requiredModel.isDownloaded && currentModelId == requiredModel.id) {
+            // Model is ready! Start immediately
+            android.util.Log.d("AIPracticeMode", "✅ Model ready, starting ${gameMode.name}")
+            onDifficultySelected(gameMode)
+        } else {
+            // Model not ready, show dialog
+            android.util.Log.d(
+                "AIPracticeMode",
+                "⚠️ Model not ready, showing dialog for ${gameMode.name}"
+            )
+            pendingGameMode = gameMode
+            showModelDownloadDialog = true
+        }
+    }
+
+    // Watch for model becoming ready
+    LaunchedEffect(currentModelId, showModelDownloadDialog) {
+        // Only proceed if we have a pending mode AND model just became ready
+        if (pendingGameMode != null && showModelDownloadDialog) {
+            val requiredModelName = "Qwen 2.5 3B Instruct Q6_K"
+            val model = availableModels.find { it.name == requiredModelName }
+
+            if (model != null && model.isDownloaded && currentModelId == model.id) {
+                // Model is now ready!
+                android.util.Log.d(
+                    "AIPracticeMode",
+                    "✅ Model loaded, starting ${pendingGameMode?.name}"
+                )
+                val modeToStart = pendingGameMode
+                pendingGameMode = null
+                showModelDownloadDialog = false
+
+                // Small delay for smooth transition
+                kotlinx.coroutines.delay(100)
+                modeToStart?.let { onDifficultySelected(it) }
             }
         }
     }
@@ -177,16 +210,11 @@ fun AIPracticeModeScreen(
                 isLocked = !beginnerUnlocked,
                 requiredWins = DifficultyLevel.BEGINNER.requiredWins,
                 currentWins = userWins,
-                modelInfo = "Llama 1B Model",
+                modelInfo = "Qwen 2.5 3B",
                 onClick = {
                     if (beginnerUnlocked) {
-                        selectedGameMode = GameMode.AI_BEGINNER
-                        val requiredModel = availableModels.find { it.name == "Llama 3.2 1B Instruct Q6_K" }
-                        if (requiredModel == null || !requiredModel.isDownloaded || currentModelId != requiredModel.id) {
-                            showModelDownloadDialog = true
-                        } else {
-                            onDifficultySelected(GameMode.AI_BEGINNER)
-                        }
+                        android.util.Log.d("AIPracticeMode", "🎮 Beginner clicked")
+                        checkModelAndStart(GameMode.AI_BEGINNER)
                     } else {
                         showUnlockDialog = DifficultyLevel.BEGINNER
                     }
@@ -195,7 +223,7 @@ fun AIPracticeModeScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Thinker Mode (Intermediate) - UNLOCK AT 2 WINS
+            // Thinker Mode (Intermediate) - ALWAYS UNLOCKED (requiredWins = 0)
             val intermediateUnlocked = DifficultyLevel.INTERMEDIATE.isUnlocked(userWins)
             ElegantDifficultyCard(
                 title = "Thinker",
@@ -207,16 +235,11 @@ fun AIPracticeModeScreen(
                 isLocked = !intermediateUnlocked,
                 requiredWins = DifficultyLevel.INTERMEDIATE.requiredWins,
                 currentWins = userWins,
-                modelInfo = "Qwen 3B Advanced",
+                modelInfo = "Qwen 2.5 3B",
                 onClick = {
                     if (intermediateUnlocked) {
-                        selectedGameMode = GameMode.AI_INTERMEDIATE
-                        val requiredModel = availableModels.find { it.name == "Qwen 2.5 3B Instruct Q6_K" }
-                        if (requiredModel == null || !requiredModel.isDownloaded || currentModelId != requiredModel.id) {
-                            showModelDownloadDialog = true
-                        } else {
-                            onDifficultySelected(GameMode.AI_INTERMEDIATE)
-                        }
+                        android.util.Log.d("AIPracticeMode", "🎮 Intermediate clicked")
+                        checkModelAndStart(GameMode.AI_INTERMEDIATE)
                     } else {
                         showUnlockDialog = DifficultyLevel.INTERMEDIATE
                     }
@@ -225,7 +248,7 @@ fun AIPracticeModeScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Speaker Mode (Advanced) - UNLOCK AT 5 WINS
+            // Speaker Mode (Advanced) - ALWAYS UNLOCKED (requiredWins = 0)
             val advancedUnlocked = DifficultyLevel.ADVANCED.isUnlocked(userWins)
             ElegantDifficultyCard(
                 title = "Speaker",
@@ -237,16 +260,11 @@ fun AIPracticeModeScreen(
                 isLocked = !advancedUnlocked,
                 requiredWins = DifficultyLevel.ADVANCED.requiredWins,
                 currentWins = userWins,
-                modelInfo = "Qwen 3B Maximum",
+                modelInfo = "Qwen 2.5 3B",
                 onClick = {
                     if (advancedUnlocked) {
-                        selectedGameMode = GameMode.AI_ADVANCED
-                        val requiredModel = availableModels.find { it.name == "Qwen 2.5 3B Instruct Q6_K" }
-                        if (requiredModel == null || !requiredModel.isDownloaded || currentModelId != requiredModel.id) {
-                            showModelDownloadDialog = true
-                        } else {
-                            onDifficultySelected(GameMode.AI_ADVANCED)
-                        }
+                        android.util.Log.d("AIPracticeMode", "🎮 Advanced clicked")
+                        checkModelAndStart(GameMode.AI_ADVANCED)
                     } else {
                         showUnlockDialog = DifficultyLevel.ADVANCED
                     }
@@ -269,19 +287,29 @@ fun AIPracticeModeScreen(
         }
         
         // Model Download Dialog
-        if (showModelDownloadDialog && selectedGameMode != null) {
+        if (showModelDownloadDialog && pendingGameMode != null) {
             ModelDownloadDialog(
-                gameMode = selectedGameMode!!,
+                gameMode = pendingGameMode!!,
                 availableModels = availableModels,
                 downloadProgress = downloadProgress,
                 currentModelId = currentModelId,
                 statusMessage = statusMessage,
-                onDownload = { modelId -> debateViewModel.downloadModel(modelId) },
-                onLoad = { modelId -> debateViewModel.loadModel(modelId) },
-                onRefresh = { debateViewModel.refreshModels() },
-                onCancel = { 
+                onDownload = { modelId ->
+                    android.util.Log.d("AIPracticeMode", "📥 Starting download for $modelId")
+                    debateViewModel.downloadModel(modelId)
+                },
+                onLoad = { modelId ->
+                    android.util.Log.d("AIPracticeMode", "🔄 Loading model $modelId")
+                    debateViewModel.loadModel(modelId)
+                },
+                onRefresh = {
+                    android.util.Log.d("AIPracticeMode", "🔄 Refreshing models")
+                    debateViewModel.refreshModels()
+                },
+                onCancel = {
+                    android.util.Log.d("AIPracticeMode", "❌ User cancelled model dialog")
                     showModelDownloadDialog = false
-                    selectedGameMode = null
+                    pendingGameMode = null
                 }
             )
         }
@@ -813,7 +841,7 @@ fun ModelDownloadDialog(
 ) {
     // Determine required model name
     val requiredModelName = when (gameMode) {
-        GameMode.AI_BEGINNER -> "Llama 3.2 1B Instruct Q6_K"
+        GameMode.AI_BEGINNER -> "Qwen 2.5 3B Instruct Q6_K"
         GameMode.AI_INTERMEDIATE, GameMode.AI_ADVANCED -> "Qwen 2.5 3B Instruct Q6_K"
         else -> ""
     }

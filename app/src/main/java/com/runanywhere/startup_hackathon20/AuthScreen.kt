@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -26,13 +27,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -46,6 +54,9 @@ import com.runanywhere.startup_hackathon20.AuthViewModel
 import com.runanywhere.startup_hackathon20.UserData
 import kotlin.math.cos
 import kotlin.math.sin
+import java.text.SimpleDateFormat
+import java.util.Locale
+import androidx.activity.compose.BackHandler
 
 // Elegant Dark Theme Color Palette with Golden Accents
 private val DeepBlack = Color(0xFF0D0D12)
@@ -66,6 +77,77 @@ enum class AuthPage {
     MAIN, LOGIN, SIGNUP
 }
 
+enum class PasswordStrength {
+    WEAK, MEDIUM, STRONG
+}
+
+@Composable
+fun PasswordStrengthIndicator(password: String) {
+    if (password.isEmpty()) return
+
+    val strength = when {
+        password.length < 6 -> PasswordStrength.WEAK
+        password.length < 10 -> PasswordStrength.MEDIUM
+        else -> PasswordStrength.STRONG
+    }
+
+    val (color, label, bars) = when (strength) {
+        PasswordStrength.WEAK -> Triple(ErrorRose, "Weak password", 1)
+        PasswordStrength.MEDIUM -> Triple(AmberAccent, "Medium password", 2)
+        PasswordStrength.STRONG -> Triple(SuccessGreen, "Strong password", 3)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        // Strength bars
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            repeat(3) { index ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(4.dp)
+                        .background(
+                            color = if (index < bars) color else SilverGray.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(2.dp)
+                        )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Label
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = color,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+fun LoadingOverlay(loading: Boolean) {
+    if (loading) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color = GoldPrimary
+            )
+        }
+    }
+}
+
 @Composable
 fun AuthScreen(
     onAuthSuccess: (UserData) -> Unit,
@@ -79,6 +161,12 @@ fun AuthScreen(
         if (authState is AuthState.Success) {
             onAuthSuccess((authState as AuthState.Success).user)
         }
+    }
+
+    // Handle back button - go from Login/SignUp to MAIN
+    BackHandler(enabled = currentPage != AuthPage.MAIN) {
+        viewModel.resetState()
+        currentPage = AuthPage.MAIN
     }
 
     AnimatedVisibility(
@@ -213,7 +301,10 @@ fun LoginScreen(
     val isEmailValid = remember(email) {
         email.isEmpty() || android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
     }
-    
+
+    val focusManager = LocalFocusManager.current
+    val hapticFeedback = LocalHapticFeedback.current
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -304,7 +395,11 @@ fun LoginScreen(
                 keyboardType = KeyboardType.Email,
                 enabled = !isLoading,
                 isError = !isEmailValid,
-                errorMessage = if (!isEmailValid) "Invalid email format" else null
+                errorMessage = if (!isEmailValid) "Invalid email format" else null,
+                keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                )
             )
             
             Spacer(modifier = Modifier.height(20.dp))
@@ -317,8 +412,21 @@ fun LoginScreen(
                 leadingIcon = Icons.Default.Lock,
                 isPassword = true,
                 passwordVisible = passwordVisible,
-                onTogglePasswordVisibility = { passwordVisible = !passwordVisible },
-                enabled = !isLoading
+                onTogglePasswordVisibility = {
+                    passwordVisible = !passwordVisible
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                },
+                enabled = !isLoading,
+                isError = password.length < 6,
+                errorMessage = if (password.length < 6) "Password must be at least 6 characters" else null,
+                keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        if (email.isNotBlank() && password.isNotBlank() && isEmailValid) {
+                            onLogin(email, password)
+                        }
+                    }
+                )
             )
             
             Spacer(modifier = Modifier.height(40.dp))
@@ -377,8 +485,10 @@ fun SignUpScreen(
     var confirmPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var confirmPasswordVisible by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
     
     val isLoading = authState is AuthState.Loading
+    val isSignUpSuccess = authState is AuthState.SignUpSuccess
     val passwordsMatch = password == confirmPassword || confirmPassword.isEmpty()
     val isEmailValid = remember(email) {
         email.isEmpty() || android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
@@ -388,6 +498,17 @@ fun SignUpScreen(
             lastName.isNotBlank() && email.isNotBlank() &&
             dateOfBirth.isNotBlank() && password.isNotBlank() &&
             confirmPassword.isNotBlank()
+
+    val focusManager = LocalFocusManager.current
+    val hapticFeedback = LocalHapticFeedback.current
+
+    // Auto-navigate to login after successful signup (after 2 seconds)
+    LaunchedEffect(isSignUpSuccess) {
+        if (isSignUpSuccess) {
+            kotlinx.coroutines.delay(2000)
+            onNavigateToLogin()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -452,7 +573,27 @@ fun SignUpScreen(
             )
             
             Spacer(modifier = Modifier.height(36.dp))
-            
+
+            // Success Message
+            AnimatedVisibility(
+                visible = isSignUpSuccess,
+                enter = slideInVertically(animationSpec = tween(300)) + fadeIn(
+                    animationSpec = tween(
+                        300
+                    )
+                ),
+                exit = slideOutVertically(animationSpec = tween(300)) + fadeOut(
+                    animationSpec = tween(
+                        300
+                    )
+                )
+            ) {
+                SuccessCard(
+                    message = (authState as? AuthState.SignUpSuccess)?.message ?: "Success!",
+                    onNavigateToLogin = onNavigateToLogin
+                )
+            }
+
             // Error Message
             AnimatedVisibility(
                 visible = authState is AuthState.Error,
@@ -476,7 +617,11 @@ fun SignUpScreen(
                 onValueChange = { username = it },
                 placeholder = "Username",
                 leadingIcon = Icons.Default.Person,
-                enabled = !isLoading
+                enabled = !isLoading && !isSignUpSuccess,
+                keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                )
             )
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -491,8 +636,12 @@ fun SignUpScreen(
                     onValueChange = { firstName = it },
                     placeholder = "First Name",
                     leadingIcon = Icons.Default.Person,
-                    enabled = !isLoading,
-                    modifier = Modifier.weight(1f)
+                    enabled = !isLoading && !isSignUpSuccess,
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                    )
                 )
                 
                 ElegantTextField(
@@ -500,8 +649,12 @@ fun SignUpScreen(
                     onValueChange = { lastName = it },
                     placeholder = "Last Name",
                     leadingIcon = Icons.Default.Person,
-                    enabled = !isLoading,
-                    modifier = Modifier.weight(1f)
+                    enabled = !isLoading && !isSignUpSuccess,
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                    )
                 )
             }
             
@@ -514,20 +667,65 @@ fun SignUpScreen(
                 placeholder = "Email Address",
                 leadingIcon = Icons.Default.Email,
                 keyboardType = KeyboardType.Email,
-                enabled = !isLoading,
+                enabled = !isLoading && !isSignUpSuccess,
                 isError = !isEmailValid,
-                errorMessage = if (!isEmailValid) "Invalid email format" else null
+                errorMessage = if (!isEmailValid) "Invalid email format" else null,
+                keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                )
             )
             
             Spacer(modifier = Modifier.height(16.dp))
-            
-            // Date of Birth Field
-            ElegantTextField(
+
+            // Date of Birth Field with Date Picker
+            OutlinedTextField(
                 value = dateOfBirth,
-                onValueChange = { dateOfBirth = it },
-                placeholder = "Date of Birth (YYYY-MM-DD)",
-                leadingIcon = Icons.Default.DateRange,
-                enabled = !isLoading
+                onValueChange = { },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !isLoading && !isSignUpSuccess) { showDatePicker = true },
+                placeholder = {
+                Text(
+                        "Date of Birth",
+                        color = SilverGray.copy(alpha = 0.7f),
+                        fontSize = 15.sp
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.DateRange,
+                        contentDescription = "Date of Birth",
+                        tint = GoldPrimary
+                    )
+                },
+                trailingIcon = {
+                    IconButton(
+                        onClick = { showDatePicker = true },
+                        enabled = !isLoading && !isSignUpSuccess
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DateRange,
+                            contentDescription = "Pick Date",
+                            tint = GoldPrimary
+                        )
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = PearlWhite,
+                    unfocusedTextColor = SoftWhite,
+                    disabledTextColor = SoftWhite,
+                    focusedBorderColor = GoldPrimary,
+                    unfocusedBorderColor = SilverGray.copy(alpha = 0.3f),
+                    focusedContainerColor = DarkSlate.copy(alpha = 0.5f),
+                    unfocusedContainerColor = DarkSlate.copy(alpha = 0.3f),
+                    disabledContainerColor = DarkSlate.copy(alpha = 0.3f),
+                    cursorColor = GoldPrimary
+                ),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                enabled = false,
+                readOnly = true
             )
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -540,12 +738,21 @@ fun SignUpScreen(
                 leadingIcon = Icons.Default.Lock,
                 isPassword = true,
                 passwordVisible = passwordVisible,
-                onTogglePasswordVisibility = { passwordVisible = !passwordVisible },
-                enabled = !isLoading,
+                onTogglePasswordVisibility = {
+                    passwordVisible = !passwordVisible
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                },
+                enabled = !isLoading && !isSignUpSuccess,
                 isError = !isPasswordValid,
-                errorMessage = if (!isPasswordValid) "Password must be at least 6 characters" else null
+                errorMessage = if (!isPasswordValid) "Password must be at least 6 characters" else null,
+                keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                )
             )
-            
+
+            PasswordStrengthIndicator(password = password)
+
             Spacer(modifier = Modifier.height(16.dp))
             
             // Confirm Password Field
@@ -556,49 +763,190 @@ fun SignUpScreen(
                 leadingIcon = Icons.Default.Lock,
                 isPassword = true,
                 passwordVisible = confirmPasswordVisible,
-                onTogglePasswordVisibility = { confirmPasswordVisible = !confirmPasswordVisible },
-                enabled = !isLoading,
+                onTogglePasswordVisibility = {
+                    confirmPasswordVisible = !confirmPasswordVisible
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                },
+                enabled = !isLoading && !isSignUpSuccess,
                 isError = !passwordsMatch,
-                errorMessage = if (!passwordsMatch) "Passwords do not match" else null
+                errorMessage = if (!passwordsMatch) "Passwords do not match" else null,
+                keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        if (allFieldsFilled && passwordsMatch && isEmailValid && isPasswordValid) {
+                            onSignUp(username, firstName, lastName, email, password, dateOfBirth)
+                        }
+                    }
+                )
             )
             
             Spacer(modifier = Modifier.height(36.dp))
             
             // Sign Up Button
-            GoldenButton(
-                text = if (isLoading) "CREATING ACCOUNT..." else "CREATE ACCOUNT",
-                onClick = {
-                    if (allFieldsFilled && passwordsMatch && isEmailValid && isPasswordValid) {
-                        onSignUp(username, firstName, lastName, email, password, dateOfBirth)
-                    }
-                },
-                enabled = allFieldsFilled && passwordsMatch && !isLoading && isEmailValid && isPasswordValid,
-                loading = isLoading,
-                modifier = Modifier.fillMaxWidth()
-            )
+            if (!isSignUpSuccess) {
+                GoldenButton(
+                    text = if (isLoading) "CREATING ACCOUNT..." else "CREATE ACCOUNT",
+                    onClick = {
+                        if (allFieldsFilled && passwordsMatch && isEmailValid && isPasswordValid) {
+                            onSignUp(username, firstName, lastName, email, password, dateOfBirth)
+                        }
+                    },
+                    enabled = allFieldsFilled && passwordsMatch && !isLoading && isEmailValid && isPasswordValid,
+                    loading = isLoading,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             
             Spacer(modifier = Modifier.height(24.dp))
             
             // Login Link
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Already have an account? ",
-                    color = SilverGray,
-                    fontSize = 14.sp
-                )
-                Text(
-                    text = "Log In",
-                    color = GoldPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable(enabled = !isLoading) { onNavigateToLogin() }
-                )
+            if (!isSignUpSuccess) {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Already have an account? ",
+                        color = SilverGray,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Log In",
+                        color = GoldPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable(enabled = !isLoading) { onNavigateToLogin() }
+                    )
+                }
             }
             
             Spacer(modifier = Modifier.height(40.dp))
+        }
+    }
+
+    // Date Picker Dialog
+    if (showDatePicker) {
+        SimpleDatePickerDialog(
+            onDateSelected = { selectedDate ->
+                dateOfBirth = selectedDate
+                showDatePicker = false
+            },
+            onDismiss = { showDatePicker = false }
+        )
+    }
+
+    LoadingOverlay(loading = isLoading)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SimpleDatePickerDialog(
+    onDateSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val datePickerState = rememberDatePickerState()
+
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val selectedMillis = datePickerState.selectedDateMillis
+                    if (selectedMillis != null) {
+                        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                        val formattedDate = dateFormat.format(java.util.Date(selectedMillis))
+                        onDateSelected(formattedDate)
+                    }
+                }
+            ) {
+                Text("OK", color = GoldPrimary, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = SilverGray)
+            }
+        },
+        colors = DatePickerDefaults.colors(
+            containerColor = DarkSlate
+        )
+    ) {
+        DatePicker(
+            state = datePickerState,
+            colors = DatePickerDefaults.colors(
+                containerColor = DarkSlate,
+                titleContentColor = PearlWhite,
+                headlineContentColor = PearlWhite,
+                weekdayContentColor = SilverGray,
+                subheadContentColor = GoldPrimary,
+                yearContentColor = SoftWhite,
+                currentYearContentColor = GoldPrimary,
+                selectedYearContentColor = DeepBlack,
+                selectedYearContainerColor = GoldPrimary,
+                dayContentColor = SoftWhite,
+                selectedDayContentColor = DeepBlack,
+                selectedDayContainerColor = GoldPrimary,
+                todayContentColor = GoldPrimary,
+                todayDateBorderColor = GoldPrimary
+            )
+        )
+    }
+}
+
+@Composable
+fun SuccessCard(message: String, onNavigateToLogin: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = SuccessGreen.copy(alpha = 0.15f)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, SuccessGreen.copy(alpha = 0.3f))
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Success",
+                    tint = SuccessGreen,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = message,
+                    color = SuccessGreen,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedButton(
+                onClick = onNavigateToLogin,
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, SuccessGreen),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = SuccessGreen
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = "GO TO LOGIN",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+            }
         }
     }
 }
@@ -786,8 +1134,13 @@ fun GoldenButton(
     enabled: Boolean = true,
     loading: Boolean = false
 ) {
+    val hapticFeedback = LocalHapticFeedback.current
+
     Button(
-        onClick = onClick,
+        onClick = {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+            onClick()
+        },
         modifier = modifier.height(62.dp),
         enabled = enabled && !loading,
         colors = ButtonDefaults.buttonColors(
@@ -891,7 +1244,9 @@ fun ElegantTextField(
     onTogglePasswordVisibility: () -> Unit = {},
     enabled: Boolean = true,
     isError: Boolean = false,
-    errorMessage: String? = null
+    errorMessage: String? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default
 ) {
     Column(modifier = modifier) {
         OutlinedTextField(
@@ -900,8 +1255,8 @@ fun ElegantTextField(
             modifier = Modifier.fillMaxWidth(),
             placeholder = { 
                 Text(
-                    placeholder, 
-                    color = SilverGray.copy(alpha = 0.6f),
+                    placeholder,
+                    color = SilverGray.copy(alpha = 0.7f),
                     fontSize = 15.sp
                 ) 
             },
@@ -924,7 +1279,8 @@ fun ElegantTextField(
                 }
             } else null,
             visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = PearlWhite,
                 unfocusedTextColor = SoftWhite,
@@ -994,7 +1350,7 @@ fun AnimatedLuxuryBackground() {
     
     // Create multiple floating orbs
     val orbs = remember {
-        List(12) { index ->
+        List(6) { index ->
             Triple(
                 (0..100).random() / 100f, // x position
                 (0..100).random() / 100f, // y position
