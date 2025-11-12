@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -58,6 +60,7 @@ enum class P2PPrepStage {
 /**
  * P2P Debate Preparation Screen
  * Similar to AI mode but uses real player names and server-decided turn order
+ * NOW WITH: Skip button, Progress indicator, Larger text, Better timing!
  */
 @Composable
 fun P2PDebatePreparationScreen(
@@ -68,6 +71,8 @@ fun P2PDebatePreparationScreen(
     p2pViewModel: P2PDebateViewModel = viewModel()
 ) {
     var currentStage by remember { mutableStateOf(P2PPrepStage.VS_ANIMATION) }
+    var allowSkip by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
 
     // Initialize session
     LaunchedEffect(sessionId) {
@@ -78,31 +83,33 @@ fun P2PDebatePreparationScreen(
     val sessionData by p2pViewModel.sessionData.collectAsState()
     val opponentName by p2pViewModel.opponentName.collectAsState()
 
-    // Auto-progress through stages
+    // Auto-progress through stages WITH IMPROVED TIMINGS
     LaunchedEffect(currentStage, sessionData) {
         when (currentStage) {
             P2PPrepStage.VS_ANIMATION -> {
-                delay(3000)
+                delay(2000) // Allow skip after 2s
+                allowSkip = true
+                delay(4000) // Total 6 seconds (doubled from 3s)
                 currentStage = P2PPrepStage.TOPIC_REVEAL
             }
 
             P2PPrepStage.TOPIC_REVEAL -> {
-                delay(4000)
+                delay(8000) // Doubled from 4s - users can read topic
                 currentStage = P2PPrepStage.SIDE_ASSIGNMENT
             }
 
             P2PPrepStage.SIDE_ASSIGNMENT -> {
-                delay(2500)
+                delay(5000) // Doubled from 2.5s - users can understand sides
                 currentStage = P2PPrepStage.SERVER_DECISION
             }
 
             P2PPrepStage.SERVER_DECISION -> {
-                delay(3000)
+                delay(4000) // Increased from 3s
                 currentStage = P2PPrepStage.COUNTDOWN
             }
 
             P2PPrepStage.COUNTDOWN -> {
-                delay(3000)
+                delay(4000) // Increased from 3s
                 currentStage = P2PPrepStage.READY
             }
 
@@ -164,6 +171,68 @@ fun P2PDebatePreparationScreen(
 
                 P2PPrepStage.READY -> {
                     // Transition
+                }
+            }
+        }
+
+        // Progress Indicator (top-left)
+        if (currentStage != P2PPrepStage.READY) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.TopStart
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = DarkCard.copy(alpha = 0.8f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Stage",
+                            tint = CyanPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Stage ${currentStage.ordinal + 1}/6",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                    }
+                }
+            }
+        }
+
+        // Skip Button (top-right) - appears after 2s
+        if (allowSkip && currentStage != P2PPrepStage.SERVER_DECISION && currentStage != P2PPrepStage.READY) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.TopEnd
+            ) {
+                TextButton(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        currentStage = P2PPrepStage.READY
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = CyanPrimary
+                    )
+                ) {
+                    Text(
+                        text = "Skip ➜",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
@@ -283,7 +352,7 @@ fun P2PPlayerCard(
             }
             Text(
                 text = name,
-                fontSize = 24.sp,
+                fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextWhite
             )
@@ -294,10 +363,20 @@ fun P2PPlayerCard(
 @Composable
 fun P2PTopicReveal(topic: String, description: String) {
     var revealed by remember { mutableStateOf(false) }
+    var showTopicIcon by remember { mutableStateOf(false) }
+    var showTopicText by remember { mutableStateOf(false) }
+    var showDescription by remember { mutableStateOf(false) }
 
+    // Staggered reveal animation
     LaunchedEffect(Unit) {
         delay(500)
         revealed = true
+        delay(500)
+        showTopicIcon = true
+        delay(1000)
+        showTopicText = true
+        delay(1500)
+        showDescription = true
     }
 
     val scale by animateFloatAsState(
@@ -345,21 +424,50 @@ fun P2PTopicReveal(topic: String, description: String) {
                 modifier = Modifier.padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = topic,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = description,
-                    fontSize = 14.sp,
-                    color = TextGray,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 20.sp
-                )
+                // Staggered icon
+                AnimatedVisibility(
+                    visible = showTopicIcon,
+                    enter = fadeIn() + scaleIn()
+                ) {
+                    Text(
+                        text = "📜",
+                        fontSize = 56.sp,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                }
+
+                // Staggered title
+                AnimatedVisibility(
+                    visible = showTopicText,
+                    enter = fadeIn() + slideInVertically()
+                ) {
+                    Text(
+                        text = topic,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 36.sp
+                    )
+                }
+
+                if (showDescription) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                // Staggered description
+                AnimatedVisibility(
+                    visible = showDescription,
+                    enter = fadeIn() + slideInVertically()
+                ) {
+                    Text(
+                        text = description,
+                        fontSize = 16.sp,
+                        color = TextGray,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 22.sp
+                    )
+                }
             }
         }
     }
@@ -445,14 +553,14 @@ fun P2PSideCard(
                 Column {
                     Text(
                         text = name,
-                        fontSize = 18.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextWhite
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Arguing: $side",
-                        fontSize = 16.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = color
                     )
@@ -486,7 +594,7 @@ fun P2PServerDecision(player1Name: String, player2Name: String, playerStarts: Bo
                 .rotate(rotation),
             contentAlignment = Alignment.Center
         ) {
-            Canvas(modifier = Modifier.size(200.dp)) {
+            Canvas(modifier = Modifier.size(240.dp)) {
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
@@ -515,10 +623,29 @@ fun P2PServerDecision(player1Name: String, player2Name: String, playerStarts: Bo
         Spacer(modifier = Modifier.height(48.dp))
 
         Text(
-            text = "🎲 Server Deciding...",
-            fontSize = 24.sp,
+            text = "🎲 Fair Server Decision",
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             color = GoldCoin
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Randomly selecting first player...",
+            fontSize = 16.sp,
+            color = TextGray,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Both players have 50% chance",
+            fontSize = 14.sp,
+            color = TextGray.copy(alpha = 0.7f),
+            textAlign = TextAlign.Center,
+            fontStyle = FontStyle.Italic
         )
     }
 }
@@ -564,7 +691,7 @@ fun P2PCountdown(playerStarts: Boolean, playerName: String, opponentName: String
             ) {
                 Text(
                     text = if (playerStarts) "🎉 You Start First!" else "⏳ Opponent Starts First!",
-                    fontSize = 24.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
                     textAlign = TextAlign.Center
@@ -572,7 +699,7 @@ fun P2PCountdown(playerStarts: Boolean, playerName: String, opponentName: String
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = if (playerStarts) playerName else opponentName,
-                    fontSize = 18.sp,
+                    fontSize = 20.sp,
                     color = if (playerStarts) CyanPrimary else PurpleAccent
                 )
             }
@@ -583,7 +710,7 @@ fun P2PCountdown(playerStarts: Boolean, playerName: String, opponentName: String
         if (countdownNumber > 0) {
             Text(
                 text = countdownNumber.toString(),
-                fontSize = 120.sp,
+                fontSize = 140.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = CyanPrimary,
                 modifier = Modifier.scale(scale)
@@ -591,13 +718,13 @@ fun P2PCountdown(playerStarts: Boolean, playerName: String, opponentName: String
             Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = "Get Ready!",
-                fontSize = 20.sp,
+                fontSize = 22.sp,
                 color = TextGray
             )
         } else {
             Text(
                 text = "BEGIN!",
-                fontSize = 72.sp,
+                fontSize = 84.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = GreenWin,
                 modifier = Modifier.scale(scale)

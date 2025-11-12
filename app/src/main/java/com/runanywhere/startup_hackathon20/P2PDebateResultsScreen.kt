@@ -188,138 +188,177 @@ fun P2PWinnerAnnouncement(
         label = "rotation"
     )
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth()
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
     ) {
-        // Trophy/Defeat Icon
-        Box(
-            modifier = Modifier.size(160.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            // Outer glow ring (rotating)
-            if (iWon) {
-                Canvas(
-                    modifier = Modifier
-                        .size(180.dp)
-                        .rotate(rotation)
-                ) {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                GoldStar.copy(alpha = 0.3f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-                }
-            }
+        // Add confetti for victories!
+        if (iWon) {
+            P2PVictoryConfetti()
+        }
 
-            // Icon with scale animation
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Trophy/Defeat Icon
             Box(
-                modifier = Modifier
-                    .size(140.dp)
-                    .scale(glowScale)
-                    .clip(CircleShape)
-                    .background(
-                        if (iWon) {
-                            Brush.radialGradient(
+                modifier = Modifier.size(160.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                // Outer glow ring (rotating)
+                if (iWon) {
+                    Canvas(
+                        modifier = Modifier
+                            .size(180.dp)
+                            .rotate(rotation)
+                    ) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
                                 colors = listOf(
                                     GoldStar.copy(alpha = 0.3f),
-                                    GreenWin.copy(alpha = 0.1f)
-                                )
-                            )
-                        } else {
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    RedLoss.copy(alpha = 0.3f),
                                     Color.Transparent
                                 )
                             )
-                        }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (iWon) Icons.Default.Star else Icons.Default.Close,
-                    contentDescription = if (iWon) "Victory" else "Defeat",
-                    tint = if (iWon) GoldStar else RedLoss,
-                    modifier = Modifier.size(80.dp)
+                        )
+                    }
+                }
+
+                // Icon with scale animation
+                Box(
+                    modifier = Modifier
+                        .size(140.dp)
+                        .scale(glowScale)
+                        .clip(CircleShape)
+                        .background(
+                            if (iWon) {
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        GoldStar.copy(alpha = 0.3f),
+                                        GreenWin.copy(alpha = 0.1f)
+                                    )
+                                )
+                            } else {
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        RedLoss.copy(alpha = 0.3f),
+                                        Color.Transparent
+                                    )
+                                )
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (iWon) Icons.Default.Star else Icons.Default.Close,
+                        contentDescription = if (iWon) "Victory" else "Defeat",
+                        tint = if (iWon) GoldStar else RedLoss,
+                        modifier = Modifier.size(80.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Victory/Defeat Text
+            Text(
+                text = if (iWon) "🏆 VICTORY!" else "💪 DEFEATED",
+                fontSize = 56.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (iWon) GoldStar else RedLoss,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Score Display
+            Card(
+                modifier = Modifier.fillMaxWidth(0.85f),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = DarkCard.copy(alpha = 0.8f)
                 )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // My Score
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = myName,
+                            fontSize = 16.sp,
+                            color = TextGray,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = myScore.toString(),
+                            fontSize = 48.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (iWon) GreenWin else RedLoss
+                        )
+                    }
+
+                    // VS Divider
+                    Text(
+                        text = "-",
+                        fontSize = 32.sp,
+                        color = TextGray
+                    )
+
+                    // Opponent Score
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = opponentName,
+                            fontSize = 16.sp,
+                            color = TextGray,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = opponentScore.toString(),
+                            fontSize = 48.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (!iWon) GreenWin else TextGray
+                        )
+                    }
+                }
             }
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(24.dp))
+/**
+ * Victory confetti animation (falling particles)
+ */
+@Composable
+fun P2PVictoryConfetti() {
+    val confettiColors = listOf(GoldStar, GreenWin, CyanPrimary, OrangeAccent, Color(0xFFFFD700))
 
-        // Victory/Defeat Text
-        Text(
-            text = if (iWon) "🏆 VICTORY!" else "💪 DEFEATED",
-            fontSize = 48.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = if (iWon) GoldStar else RedLoss,
-            textAlign = TextAlign.Center
-        )
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        // Draw 100 confetti particles
+        repeat(100) { index ->
+            val time = System.currentTimeMillis()
+            val offset = index * 100L
+            val progress = ((time + offset) % 4000) / 4000f
 
-        Spacer(modifier = Modifier.height(16.dp))
+            val x = size.width * ((index % 20) / 20f)
+            val y = size.height * progress
+            val color = confettiColors[index % confettiColors.size]
+            val rotation = (index * 45f + time * 0.1f) % 360f
 
-        // Score Display
-        Card(
-            modifier = Modifier.fillMaxWidth(0.85f),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = DarkCard.copy(alpha = 0.8f)
+            // Draw rotating rectangles for confetti
+            drawCircle(
+                color = color.copy(alpha = (1f - progress) * 0.8f),
+                radius = 12f,
+                center = Offset(x + kotlin.math.cos(rotation * 0.01f) * 20f, y)
             )
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // My Score
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = myName,
-                        fontSize = 14.sp,
-                        color = TextGray,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = myScore.toString(),
-                        fontSize = 48.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (iWon) GreenWin else RedLoss
-                    )
-                }
-
-                // VS Divider
-                Text(
-                    text = "-",
-                    fontSize = 32.sp,
-                    color = TextGray
-                )
-
-                // Opponent Score
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = opponentName,
-                        fontSize = 14.sp,
-                        color = TextGray,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = opponentScore.toString(),
-                        fontSize = 48.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (!iWon) GreenWin else TextGray
-                    )
-                }
-            }
         }
     }
 }
@@ -349,10 +388,10 @@ fun P2PMotivationalQuote(quote: String) {
             )
             Text(
                 text = quote,
-                fontSize = 14.sp,
+                fontSize = 15.sp,
                 fontStyle = FontStyle.Italic,
                 color = TextWhite,
-                lineHeight = 22.sp,
+                lineHeight = 24.sp,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -387,7 +426,7 @@ fun P2PMatchRating(myScore: Int, opponentScore: Int) {
         ) {
             Text(
                 text = "MATCH RATING",
-                fontSize = 16.sp,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextGray,
                 letterSpacing = 2.sp
@@ -404,7 +443,7 @@ fun P2PMatchRating(myScore: Int, opponentScore: Int) {
             ) {
                 Text(
                     text = rating.first,
-                    fontSize = 24.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = rating.second
                 )
@@ -501,9 +540,9 @@ fun P2PStrengthCard(strength: String, index: Int) {
                 // Strength text
                 Text(
                     text = strength,
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
                     color = TextWhite,
-                    lineHeight = 22.sp,
+                    lineHeight = 24.sp,
                     modifier = Modifier.weight(1f)
                 )
 
@@ -607,9 +646,9 @@ fun P2PWeaknessCard(weakness: String, index: Int) {
                 // Weakness text
                 Text(
                     text = weakness,
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
                     color = TextWhite,
-                    lineHeight = 22.sp,
+                    lineHeight = 24.sp,
                     modifier = Modifier.weight(1f)
                 )
 

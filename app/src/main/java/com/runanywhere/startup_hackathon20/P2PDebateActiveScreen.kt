@@ -23,6 +23,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,6 +46,7 @@ private val GreenWin = Color(0xFF4ADE80)
 private val OrangeAccent = Color(0xFFFB923C)
 private val RedLoss = Color(0xFFFF6B6B)
 private val YellowWarning = Color(0xFFFBBF24)
+private val GoldStar = Color(0xFFFFD700)
 
 /**
  * P2P Debate Active Screen
@@ -74,6 +77,7 @@ fun P2PDebateActiveScreen(
     val accumulatedScores by p2pViewModel.accumulatedScores.collectAsState()
     val debateStatus by p2pViewModel.debateStatus.collectAsState()
     val opponentName by p2pViewModel.opponentName.collectAsState()
+    val clientTimeRemaining by p2pViewModel.clientTimeRemaining.collectAsState() // NEW: Use client timer
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -113,7 +117,7 @@ fun P2PDebateActiveScreen(
             sessionData?.let { session ->
                 P2PDebateHeader(
                     topic = session.topic_title,
-                    timeRemaining = session.debate_time_remaining,
+                    timeRemaining = clientTimeRemaining, // Use clientTimeRemaining instead of session.debate_time_remaining
                     mySide = if (session.player1_id == currentUserId) session.player1_side else session.player2_side
                 )
             }
@@ -191,7 +195,7 @@ fun P2PDebateHeader(
     timeRemaining: Long,
     mySide: String
 ) {
-    val timeProgress = (timeRemaining / 600000f).coerceIn(0f, 1f)
+    val timeProgress = (timeRemaining / 900000f).coerceIn(0f, 1f)
     val timeSeconds = (timeRemaining / 1000).toInt()
     val minutes = timeSeconds / 60
     val seconds = timeSeconds % 60
@@ -231,10 +235,10 @@ fun P2PDebateHeader(
                 )
                 Text(
                     text = topic,
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextWhite,
-                    lineHeight = 18.sp,
+                    lineHeight = 20.sp,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -250,16 +254,16 @@ fun P2PDebateHeader(
                     imageVector = Icons.Default.CheckCircle,
                     contentDescription = "Your side",
                     tint = PurpleAccent,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(18.dp)
                 )
                 Text(
                     text = "Your Side: ",
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     color = TextGray
                 )
                 Text(
                     text = mySide,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = PurpleAccent
                 )
@@ -281,17 +285,17 @@ fun P2PDebateHeader(
                         imageVector = Icons.Default.DateRange,
                         contentDescription = "Time",
                         tint = timeColor,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                     Text(
                         text = "Time Remaining",
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         color = TextGray
                     )
                 }
                 Text(
                     text = timeText,
-                    fontSize = 16.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = timeColor
                 )
@@ -450,71 +454,99 @@ fun P2PScorePopup(
         else -> "❌"
     }
 
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(32.dp),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = DarkCard
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
-        ) {
-            Column(
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        if (score.score >= 8) {
+            P2PConfettiAnimation()
+        }
+
+        androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(32.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = DarkCard
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
             ) {
-                // Header
-                Text(
-                    text = "YOUR SCORE",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = CyanPrimary,
-                    letterSpacing = 2.sp
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Score with emoji
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = emoji,
-                        fontSize = 40.sp
-                    )
-                    Text(
-                        text = "${score.score}/10",
-                        fontSize = 48.sp,
+                        text = "YOUR SCORE",
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = scoreColor
+                        color = CyanPrimary,
+                        letterSpacing = 2.sp
                     )
-                }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                // Reasoning
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = DarkSurface.copy(alpha = 0.5f)
-                    )
-                ) {
-                    Text(
-                        text = score.reasoning,
-                        fontSize = 13.sp,
-                        color = TextWhite,
-                        lineHeight = 18.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(12.dp)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = emoji,
+                            fontSize = 40.sp
+                        )
+                        Text(
+                            text = "${score.score}/10",
+                            fontSize = 48.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = scoreColor
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = DarkSurface.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Text(
+                            text = score.reasoning,
+                            fontSize = 13.sp,
+                            color = TextWhite,
+                            lineHeight = 18.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun P2PConfettiAnimation() {
+    val infiniteTransition = rememberInfiniteTransition(label = "confetti")
+
+    val confettiColors = listOf(GreenWin, GoldStar, CyanPrimary, PurpleAccent, OrangeAccent)
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        repeat(50) { index ->
+            val progress = (System.currentTimeMillis() % 3000) / 3000f
+            val x = (size.width * (index % 10) / 10f)
+            val y = size.height * progress
+            val color = confettiColors[index % confettiColors.size]
+
+            drawCircle(
+                color = color.copy(alpha = (1f - progress)),
+                radius = 8f,
+                center = Offset(x, y)
+            )
         }
     }
 }
@@ -531,6 +563,8 @@ fun P2PInputSection(
     myScore: Int,
     opponentScore: Int
 ) {
+    val haptics = LocalHapticFeedback.current
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -568,7 +602,7 @@ fun P2PInputSection(
                         )
                         Text(
                             text = myName,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             color = TextGray,
                             maxLines = 1
                         )
@@ -606,7 +640,7 @@ fun P2PInputSection(
                         )
                         Text(
                             text = opponentName,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             color = TextGray,
                             maxLines = 1
                         )
@@ -642,7 +676,7 @@ fun P2PInputSection(
                     }
                     Text(
                         text = statusMessage,
-                        fontSize = 13.sp,
+                        fontSize = 14.sp,
                         color = if (isEnabled) GreenWin else PurpleAccent,
                         textAlign = TextAlign.Center,
                         fontWeight = FontWeight.Medium
@@ -665,7 +699,7 @@ fun P2PInputSection(
                         Text(
                             text = if (isEnabled) "Type your argument (max 300 chars)..." else "Wait for your turn...",
                             color = TextGray,
-                            fontSize = 13.sp
+                            fontSize = 14.sp
                         )
                     },
                     enabled = isEnabled,
@@ -693,9 +727,11 @@ fun P2PInputSection(
                     }
                 )
 
-                // Send Button
                 Button(
-                    onClick = onSendMessage,
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onSendMessage()
+                    },
                     enabled = isEnabled && inputText.isNotBlank() && inputText.length <= 300,
                     modifier = Modifier.size(56.dp),
                     colors = ButtonDefaults.buttonColors(

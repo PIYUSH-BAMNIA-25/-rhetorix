@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -126,34 +128,43 @@ fun getSectorColor(description: String): Color {
 
 // ========== NEW: PROGRESS INDICATOR ==========
 @Composable
-fun PrepProgressIndicator(currentStage: PrepStage) {
-    val stages = PrepStage.values().filter { it != PrepStage.READY }
-
+fun StageProgressIndicator(currentStage: PrepStage, totalStages: Int) {
+    val currentIndex = currentStage.ordinal + 1
+    
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        stages.forEachIndexed { index, stage ->
-            val isActive = stage.ordinal <= currentStage.ordinal
-            val isCurrent = stage == currentStage
-
+        Text(
+            text = "$currentIndex / $totalStages",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = CyanPrimary
+        )
+        
+        Spacer(modifier = Modifier.width(8.dp))
+        
+        // Progress bar
+        Box(
+            modifier = Modifier
+                .width(100.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(DarkCard)
+        ) {
             Box(
                 modifier = Modifier
-                    .size(if (isCurrent) 12.dp else 8.dp)
-                    .clip(CircleShape)
+                    .fillMaxHeight()
+                    .fillMaxWidth(currentIndex.toFloat() / totalStages.toFloat())
                     .background(
-                        if (isActive) CyanPrimary
-                        else TextGray.copy(alpha = 0.3f)
+                        Brush.horizontalGradient(
+                            colors = listOf(CyanPrimary, PurpleAccent)
+                        )
                     )
-                    .animateContentSize()
             )
-
-            if (index < stages.size - 1) {
-                Spacer(modifier = Modifier.width(8.dp))
-            }
         }
     }
 }
@@ -299,27 +310,50 @@ fun DebatePreparationScreen(
     gameMode: GameMode,
     onPreparationComplete: (Boolean) -> Unit
 ) {
+    // 🔍 DEBUG: Log what topic props this screen received
+    LaunchedEffect(Unit) {
+        android.util.Log.d(
+            "DebatePreparationScreen",
+            "🔍 Screen initialized with topic: '$topic'"
+        )
+    }
+
     var currentStage by remember { mutableStateOf(PrepStage.VS_ANIMATION) }
     var playerStarts by remember { mutableStateOf(false) }
     var playerChoice by remember { mutableStateOf("") }
     var coinResult by remember { mutableStateOf("") }
+    
+    // NEW: Skip functionality
+    var allowSkip by remember { mutableStateOf(false) }
+    var showSkipButton by remember { mutableStateOf(false) }
 
-    // Auto-progress through stages
+    // Auto-progress through stages with DOUBLED timing
     LaunchedEffect(currentStage) {
+        // Allow skip after 2 seconds of any stage
+        delay(2000)
+        allowSkip = true
+        showSkipButton = true
+        
         when (currentStage) {
             PrepStage.VS_ANIMATION -> {
-                delay(3000) // 3 seconds VS animation
+                delay(4000) // 6 seconds total (2s + 4s)
                 currentStage = PrepStage.TOPIC_REVEAL
+                allowSkip = false
+                showSkipButton = false
             }
 
             PrepStage.TOPIC_REVEAL -> {
-                delay(4000) // 4 seconds topic reveal (increased for typewriter)
+                delay(6000) // 8 seconds total (2s + 6s) - MORE TIME TO READ
                 currentStage = PrepStage.SIDE_ASSIGNMENT
+                allowSkip = false
+                showSkipButton = false
             }
 
             PrepStage.SIDE_ASSIGNMENT -> {
-                delay(2500) // 2.5 seconds side display
+                delay(3000) // 5 seconds total (2s + 3s)
                 currentStage = PrepStage.COIN_CHOICE
+                allowSkip = false
+                showSkipButton = false
             }
 
             PrepStage.COIN_CHOICE -> {
@@ -328,29 +362,35 @@ fun DebatePreparationScreen(
             }
 
             PrepStage.COIN_TOSS -> {
-                delay(3000) // 3 seconds coin toss
+                delay(2000) // 4 seconds total (2s + 2s) - WATCH THE COIN FLIP
                 currentStage = PrepStage.COIN_RESULT
+                allowSkip = false
+                showSkipButton = false
             }
 
             PrepStage.COIN_RESULT -> {
-                // Generate random coin result: Heads or Tails
-                coinResult = listOf("Heads", "Tails").random()
+                // ✅ USE FAIR COIN FLIP (von Neumann's algorithm)
+                coinResult = fairCoinFlip()
 
                 // Player wins if their choice matches the coin result
                 playerStarts = (playerChoice == coinResult)
 
                 android.util.Log.d(
                     "DebatePrep",
-                    "🪙 Coin toss: Player chose $playerChoice, coin landed $coinResult, player starts: $playerStarts"
+                    "🪙 FAIR Coin toss: Player chose $playerChoice, coin landed $coinResult, player starts: $playerStarts"
                 )
 
-                delay(2500) // 2.5 seconds result display
+                delay(2000) // 4 seconds total (2s + 2s) - CELEBRATE/REACT
                 currentStage = PrepStage.COUNTDOWN
+                allowSkip = false
+                showSkipButton = false
             }
 
             PrepStage.COUNTDOWN -> {
-                delay(3000) // 3 seconds countdown
+                delay(2000) // 4 seconds total (2s + 2s) - MENTAL PREPARATION
                 currentStage = PrepStage.READY
+                allowSkip = false
+                showSkipButton = false
             }
 
             PrepStage.READY -> {
@@ -380,7 +420,36 @@ fun DebatePreparationScreen(
             contentAlignment = Alignment.TopCenter
         ) {
             if (currentStage != PrepStage.READY) {
-                PrepProgressIndicator(currentStage)
+                StageProgressIndicator(
+                    currentStage = currentStage,
+                    totalStages = 7 // Total stages excluding READY
+                )
+            }
+        }
+        
+        // NEW: Skip button overlay (top-right)
+        if (showSkipButton && currentStage != PrepStage.COIN_CHOICE && currentStage != PrepStage.READY) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.TopEnd
+            ) {
+                TextButton(
+                    onClick = { 
+                        currentStage = PrepStage.READY 
+                        android.util.Log.d("DebatePrep", "⏩ User skipped preparation")
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = CyanPrimary
+                    )
+                ) {
+                    Text(
+                        "Skip ➜",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
@@ -675,10 +744,19 @@ fun TopicRevealAnimation(
     description: String
 ) {
     var revealed by remember { mutableStateOf(false) }
+    var showTopicIcon by remember { mutableStateOf(false) }
+    var showTopicText by remember { mutableStateOf(false) }
+    var showDescription by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         delay(500)
+        showTopicIcon = true
+        delay(1000)
         revealed = true
+        delay(500)
+        showTopicText = true
+        delay(1500)
+        showDescription = true
     }
 
     val scale by animateFloatAsState(
@@ -704,10 +782,22 @@ fun TopicRevealAnimation(
     var showSpeech by remember { mutableStateOf(false) }
     LaunchedEffect(revealed) {
         if (revealed) {
-            delay(2000)
+            delay(3000) // More time before speech
             showSpeech = true
         }
     }
+    
+    // NEW: Pulsing effect for important text
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
 
     CameraZoomBox(zoomIn = revealed) {
         Column(
@@ -715,7 +805,7 @@ fun TopicRevealAnimation(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // "Topic Revealed!" text
+            // "Topic Revealed!" text with pulse
             AnimatedVisibility(
                 visible = revealed,
                 enter = fadeIn() + expandVertically()
@@ -726,7 +816,9 @@ fun TopicRevealAnimation(
                     fontWeight = FontWeight.ExtraBold,
                     color = OrangeAccent,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 32.dp)
+                    modifier = Modifier
+                        .padding(bottom = 32.dp)
+                        .scale(pulseScale)
                 )
             }
 
@@ -756,45 +848,59 @@ fun TopicRevealAnimation(
                     modifier = Modifier.padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Sector icon (emoji)
-                    Text(
-                        text = sectorIcon,
-                        fontSize = 56.sp,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
+                    // Sector icon (emoji) - staggered reveal
+                    AnimatedVisibility(
+                        visible = showTopicIcon,
+                        enter = fadeIn() + scaleIn()
+                    ) {
+                        Text(
+                            text = sectorIcon,
+                            fontSize = 64.sp, // LARGER for better visibility
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Topic title with typewriter effect
-                    if (revealed) {
-                        TypewriterText(
+                    // Topic title - MORE READABLE SIZE
+                    AnimatedVisibility(
+                        visible = showTopicText,
+                        enter = fadeIn() + slideInVertically()
+                    ) {
+                        Text(
                             text = topic,
-                            fontSize = 24.sp,
+                            fontSize = 28.sp, // Increased from 24sp for readability
                             color = TextWhite,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center,
+                            lineHeight = 36.sp, // Better line spacing
                             modifier = Modifier.padding(horizontal = 8.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(24.dp)) // More spacing
 
-                    // Description
-                    Text(
-                        text = description,
-                        fontSize = 14.sp,
-                        color = TextGray,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 20.sp
-                    )
+                    // Description - staggered reveal
+                    AnimatedVisibility(
+                        visible = showDescription,
+                        enter = fadeIn() + expandVertically()
+                    ) {
+                        Text(
+                            text = description,
+                            fontSize = 16.sp, // Increased from 14sp
+                            color = TextGray,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 24.sp // Better readability
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // AI Speech Bubble
+            // AI Speech Bubble with better timing
             AISpeechBubble(
-                text = "Interesting topic... I'm ready.",
+                text = "Interesting topic... This will be a great debate!",
                 aiColor = sectorColor,
                 visible = showSpeech
             )
@@ -817,10 +923,10 @@ fun SideAssignmentAnimation(
         else -> IntermediateAI
     }
 
-    // AI speech bubble
+    // AI speech bubble with better timing
     var showSpeech by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(1500)
+        delay(2500) // More time to read sides first
         showSpeech = true
     }
 
@@ -837,11 +943,11 @@ fun SideAssignmentAnimation(
             modifier = Modifier.padding(bottom = 48.dp)
         )
 
-        // Player Side
+        // Player Side with clearer indication
         SideCard(
             name = playerName,
             side = playerSide,
-            color = CyanPrimary,
+            color = if (playerSide == "FOR") GreenWin else RedLoss, // Color-coded
             icon = Icons.Default.Person,
             isPlayer = true
         )
@@ -858,11 +964,11 @@ fun SideAssignmentAnimation(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // AI Side
+        // AI Side with clearer indication
         SideCard(
             name = aiName,
             side = aiSide,
-            color = aiColor,
+            color = if (aiSide == "FOR") GreenWin else RedLoss, // Color-coded
             icon = Icons.Default.Settings,
             isPlayer = false
         )
@@ -871,7 +977,7 @@ fun SideAssignmentAnimation(
 
         // AI Speech Bubble
         AISpeechBubble(
-            text = "I'll argue $aiSide, bring it on!",
+            text = "I'll argue $aiSide the topic. Bring your best arguments!",
             aiColor = aiColor,
             visible = showSpeech
         )
@@ -895,8 +1001,8 @@ fun SideCard(
     ) {
         Card(
             modifier = Modifier
-                .width(300.dp)
-                .height(120.dp),
+                .width(320.dp) // Wider for better readability
+                .height(140.dp), // Taller
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
                 containerColor = DarkCard
@@ -915,7 +1021,7 @@ fun SideCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(60.dp)
+                        .size(70.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(color.copy(alpha = 0.3f)),
                     contentAlignment = Alignment.Center
@@ -924,24 +1030,33 @@ fun SideCard(
                         imageVector = icon,
                         contentDescription = name,
                         tint = color,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(36.dp)
                     )
                 }
 
                 Column {
                     Text(
                         text = name,
-                        fontSize = 18.sp,
+                        fontSize = 20.sp, // Larger
                         fontWeight = FontWeight.Bold,
                         color = TextWhite
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Arguing: $side",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = color
-                    )
+                    
+                    // NEW: Clearer side indication with icon
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (side == "FOR") "✅" else "❌",
+                            fontSize = 18.sp
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = side,
+                            fontSize = 18.sp, // Larger
+                            fontWeight = FontWeight.ExtraBold,
+                            color = color
+                        )
+                    }
                 }
             }
         }
@@ -950,10 +1065,12 @@ fun SideCard(
 
 @Composable
 fun CoinChoiceAnimation(onChoice: (String) -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    
     // AI speech bubble
     var showSpeech by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(800)
+        delay(1000) // Give user time to see the screen
         showSpeech = true
     }
 
@@ -986,21 +1103,27 @@ fun CoinChoiceAnimation(onChoice: (String) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Heads Button
+            // Heads Button with haptic feedback
             CoinChoiceCard(
                 label = "HEADS",
                 emoji = "👤",
                 color = CyanPrimary,
-                onClick = { onChoice("Heads") },
+                onClick = { 
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onChoice("Heads") 
+                },
                 modifier = Modifier.weight(1f)
             )
 
-            // Tails Button
+            // Tails Button with haptic feedback
             CoinChoiceCard(
                 label = "TAILS",
                 emoji = "🔢",
                 color = PurpleAccent,
-                onClick = { onChoice("Tails") },
+                onClick = { 
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onChoice("Tails") 
+                },
                 modifier = Modifier.weight(1f)
             )
         }
@@ -1018,7 +1141,7 @@ fun CoinChoiceAnimation(onChoice: (String) -> Unit) {
 
         // AI Speech Bubble
         AISpeechBubble(
-            text = "May the best debater win!",
+            text = "May the odds be in your favor!",
             aiColor = GoldCoin,
             visible = showSpeech
         )
@@ -1092,9 +1215,10 @@ fun CoinChoiceCard(
 fun CoinTossAnimation() {
     val infiniteTransition = rememberInfiniteTransition(label = "coin")
 
+    // More realistic rotation with multiple full spins
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = 360f * 3, // 3 full rotations
+        targetValue = 1080f, // 3 full rotations (more dramatic)
         animationSpec = infiniteRepeatable(
             animation = tween(2000, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
@@ -1104,7 +1228,7 @@ fun CoinTossAnimation() {
 
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.2f,
+        targetValue = 1.3f, // More pronounced scaling
         animationSpec = infiniteRepeatable(
             animation = tween(1000),
             repeatMode = RepeatMode.Reverse
@@ -1117,7 +1241,7 @@ fun CoinTossAnimation() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Spinning coin
+        // Spinning coin with better physics
         Box(
             modifier = Modifier
                 .size(200.dp)
@@ -1125,12 +1249,13 @@ fun CoinTossAnimation() {
                 .rotate(rotation),
             contentAlignment = Alignment.Center
         ) {
-            // Outer glow
-            Canvas(modifier = Modifier.size(220.dp)) {
+            // Outer glow - more prominent
+            Canvas(modifier = Modifier.size(240.dp)) {
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            GoldCoin.copy(alpha = 0.5f),
+                            GoldCoin.copy(alpha = 0.6f),
+                            GoldCoin.copy(alpha = 0.3f),
                             Color.Transparent
                         )
                     )
@@ -1155,10 +1280,8 @@ fun CoinTossAnimation() {
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "R",
-                    fontSize = 80.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = DarkBackground
+                    text = "🪙",
+                    fontSize = 80.sp
                 )
             }
         }
@@ -1166,9 +1289,10 @@ fun CoinTossAnimation() {
         Spacer(modifier = Modifier.height(48.dp))
 
         Text(
-            text = "Deciding who starts...",
-            fontSize = 18.sp,
-            color = TextGray
+            text = "Flipping the coin...",
+            fontSize = 20.sp, // Larger text
+            fontWeight = FontWeight.SemiBold,
+            color = TextWhite
         )
     }
 }
@@ -1176,7 +1300,7 @@ fun CoinTossAnimation() {
 @Composable
 fun CoinResultAnimation(playerChoice: String, coinResult: String, playerStarts: Boolean) {
     val scale by animateFloatAsState(
-        targetValue = 1.2f,
+        targetValue = 1.3f, // More dramatic scale
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
@@ -1187,7 +1311,7 @@ fun CoinResultAnimation(playerChoice: String, coinResult: String, playerStarts: 
     // Screen shake effect
     val shakeController = rememberShakeController()
     LaunchedEffect(Unit) {
-        delay(200)
+        delay(300) // Slightly longer anticipation
         shakeController.shake()
     }
 
@@ -1196,15 +1320,20 @@ fun CoinResultAnimation(playerChoice: String, coinResult: String, playerStarts: 
             .fillMaxSize()
             .offset(x = shakeController.offset.value.dp)
     ) {
+        // NEW: Confetti animation for victories
+        if (playerStarts) {
+            ConfettiAnimation()
+        }
+        
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Result Icon
+            // Result Icon - BIGGER
             Text(
-                text = if (playerStarts) "🎉" else "😔",
-                fontSize = 80.sp,
+                text = if (playerStarts) "🎉" else "💪",
+                fontSize = 100.sp, // Much larger
                 modifier = Modifier
                     .padding(bottom = 24.dp)
                     .scale(scale)
@@ -1221,11 +1350,11 @@ fun CoinResultAnimation(playerChoice: String, coinResult: String, playerStarts: 
                     containerColor = if (playerStarts)
                         GreenWin.copy(alpha = 0.2f)
                     else
-                        RedLoss.copy(alpha = 0.2f)
+                        Color(0xFF4A5568).copy(alpha = 0.3f) // Neutral color for AI win
                 ),
                 border = androidx.compose.foundation.BorderStroke(
                     width = 3.dp,
-                    color = if (playerStarts) GreenWin else RedLoss
+                    color = if (playerStarts) GreenWin else CyanPrimary
                 )
             ) {
                 Column(
@@ -1233,18 +1362,18 @@ fun CoinResultAnimation(playerChoice: String, coinResult: String, playerStarts: 
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = if (playerStarts) "🎊 YOU WIN! 🎊" else "AI WINS!",
-                        fontSize = 28.sp,
+                        text = if (playerStarts) "🎊 YOU START! 🎊" else "AI STARTS!",
+                        fontSize = 32.sp, // Larger
                         fontWeight = FontWeight.ExtraBold,
-                        color = if (playerStarts) GreenWin else RedLoss,
+                        color = if (playerStarts) GreenWin else CyanPrimary,
                         textAlign = TextAlign.Center
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     Text(
                         text = "You chose: $playerChoice",
-                        fontSize = 18.sp,
+                        fontSize = 20.sp, // Larger
                         fontWeight = FontWeight.Medium,
                         color = TextWhite,
                         textAlign = TextAlign.Center
@@ -1252,23 +1381,24 @@ fun CoinResultAnimation(playerChoice: String, coinResult: String, playerStarts: 
 
                     Text(
                         text = "Coin landed: $coinResult",
-                        fontSize = 18.sp,
+                        fontSize = 20.sp, // Larger
                         fontWeight = FontWeight.Medium,
                         color = TextWhite,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 4.dp)
+                        modifier = Modifier.padding(top = 8.dp)
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     Text(
                         text = if (playerStarts)
-                            "✨ You'll start the debate first!"
+                            "✨ Get ready to make your opening statement!"
                         else
-                            "🤖 AI will start the debate first!",
-                        fontSize = 16.sp,
+                            "💪 Get ready to counter AI's opening!",
+                        fontSize = 18.sp, // Larger
                         color = TextGray,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        lineHeight = 24.sp
                     )
                 }
             }
@@ -1287,12 +1417,12 @@ fun CountdownAnimation(
     LaunchedEffect(Unit) {
         for (i in 3 downTo 1) {
             countdownNumber = i
-            delay(1000)
+            delay(1200) // Slightly slower countdown
         }
     }
 
     val scale by animateFloatAsState(
-        targetValue = if (countdownNumber > 0) 1.5f else 0.5f,
+        targetValue = if (countdownNumber > 0) 1.6f else 0.8f, // More dramatic
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
@@ -1311,7 +1441,7 @@ fun CountdownAnimation(
     // AI speech bubble
     var showSpeech by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(800)
+        delay(1000) // Show speech earlier
         showSpeech = true
     }
 
@@ -1326,7 +1456,7 @@ fun CountdownAnimation(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // Result announcement
+                // Result announcement - MORE PROMINENT
                 Card(
                     modifier = Modifier
                         .padding(24.dp)
@@ -1338,20 +1468,21 @@ fun CountdownAnimation(
                     )
                 ) {
                     Column(
-                        modifier = Modifier.padding(24.dp),
+                        modifier = Modifier.padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
                             text = if (playerStarts) "🎉 You Start First!" else "🤖 AI Starts First!",
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontSize = 28.sp, // Larger
+                            fontWeight = FontWeight.ExtraBold,
                             color = TextWhite,
                             textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = if (playerStarts) playerName else aiName,
-                            fontSize = 18.sp,
+                            fontSize = 22.sp, // Larger
+                            fontWeight = FontWeight.Bold,
                             color = if (playerStarts) CyanPrimary else IntermediateAI
                         )
                     }
@@ -1359,11 +1490,11 @@ fun CountdownAnimation(
 
                 Spacer(modifier = Modifier.height(64.dp))
 
-                // Countdown number
+                // Countdown number - BIGGER AND BOLDER
                 if (countdownNumber > 0) {
                     Text(
                         text = countdownNumber.toString(),
-                        fontSize = 120.sp,
+                        fontSize = 140.sp, // Much larger
                         fontWeight = FontWeight.ExtraBold,
                         color = CyanPrimary,
                         modifier = Modifier.scale(scale)
@@ -1371,24 +1502,25 @@ fun CountdownAnimation(
                     Spacer(modifier = Modifier.height(24.dp))
                     Text(
                         text = "Get Ready!",
-                        fontSize = 20.sp,
-                        color = TextGray
+                        fontSize = 24.sp, // Larger
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
                     )
                 } else {
                     Text(
                         text = "BEGIN!",
-                        fontSize = 72.sp,
+                        fontSize = 80.sp, // Larger
                         fontWeight = FontWeight.ExtraBold,
                         color = GreenWin,
                         modifier = Modifier.scale(scale)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
                 // AI Speech Bubble
                 AISpeechBubble(
-                    text = "3... 2... 1... Time to debate!",
+                    text = "3... 2... 1... Let the debate begin!",
                     aiColor = CyanPrimary,
                     visible = showSpeech
                 )
@@ -1436,6 +1568,80 @@ fun AnimatedBackgroundEffect() {
                 color = if (index % 2 == 0) PurpleAccent.copy(alpha = 0.2f)
                 else CyanPrimary.copy(alpha = 0.15f),
                 radius = (10 + index * 3).toFloat(),
+                center = Offset(x, y)
+            )
+        }
+    }
+}
+
+// ========== NEW: FAIR COIN FLIP FUNCTION (von Neumann's Algorithm) ==========
+/**
+ * Implements von Neumann's unbiasing algorithm for fair coin flips.
+ * Even if the underlying RNG is biased, this produces 50/50 results.
+ * 
+ * How it works:
+ * - Flip two coins
+ * - If HT, return Heads
+ * - If TH, return Tails
+ * - If HH or TT, retry (discard and flip again)
+ * 
+ * This guarantees P(Heads) = P(Tails) = 0.5 regardless of bias!
+ */
+private fun fairCoinFlip(): String {
+    while (true) {
+        val flip1 = if (Random.nextDouble() < 0.5) "Heads" else "Tails"
+        val flip2 = if (Random.nextDouble() < 0.5) "Heads" else "Tails"
+        
+        // Only accept different results (eliminates bias)
+        when {
+            flip1 == "Heads" && flip2 == "Tails" -> return "Heads"
+            flip1 == "Tails" && flip2 == "Heads" -> return "Tails"
+            // If both match (HH or TT), discard and retry
+        }
+        
+        android.util.Log.d("DebatePrep", "🪙 Coin flip retry (both same), flipping again...")
+    }
+}
+
+// ========== NEW: CONFETTI ANIMATION FOR VICTORIES ==========
+@Composable
+fun ConfettiAnimation() {
+    val infiniteTransition = rememberInfiniteTransition(label = "confetti")
+
+    // Create confetti animation values OUTSIDE Canvas
+    val confettiAnimations = remember {
+        List(20) { index ->
+            Pair(
+                Random.nextFloat() * 360f,
+                Random.nextFloat() * 200f + 100f
+            )
+        }
+    }
+
+    // Animate all confetti particles
+    val animatedTime by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "confetti_time"
+    )
+
+    val confettiColors = remember { listOf(CyanPrimary, PurpleAccent, GoldCoin, GreenWin) }
+
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        confettiAnimations.forEachIndexed { index, (angle, radius) ->
+            val time = animatedTime + angle
+
+            val x =
+                size.width / 2 + kotlin.math.cos(Math.toRadians(time.toDouble())).toFloat() * radius
+            val y = size.height / 2 + sin(Math.toRadians(time.toDouble())).toFloat() * radius
+            
+            drawCircle(
+                color = confettiColors[index % confettiColors.size].copy(alpha = 0.7f),
+                radius = 8f,
                 center = Offset(x, y)
             )
         }

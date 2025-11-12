@@ -86,6 +86,13 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
     // Model heartbeat job to keep it alive
     private var modelHeartbeatJob: kotlinx.coroutines.Job? = null
 
+    // 🔥 NEW: Track ongoing AI generation jobs to cancel them on timeout
+    private var aiGenerationJob: kotlinx.coroutines.Job? = null
+    private var aiJudgingJob: kotlinx.coroutines.Job? = null
+
+    // 🔥 NEW: Flag to prevent new AI operations after timeout
+    private var isDebateTimedOut = false
+
     /**
      * CRITICAL FIX: Reload model to clear KV cache before generation
      * This prevents sequence position mismatches in llama-android
@@ -170,8 +177,21 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
         else
             session.player2?.id ?: "ai_opponent"
 
+        // 🔍 DEBUG: Log topic BEFORE update
+        Log.d(
+            "DebateViewModel",
+            "🔍 BEFORE setFirstTurn: topic = '${session.topic.title}', id = ${session.topic.id}"
+        )
+
         _currentSession.value = session.copy(
             currentTurn = firstPlayerId
+        )
+
+        // 🔍 DEBUG: Log topic AFTER update
+        val updatedSession = _currentSession.value
+        Log.d(
+            "DebateViewModel",
+            "🔍 AFTER setFirstTurn: topic = '${updatedSession?.topic?.title}', id = ${updatedSession?.topic?.id}"
         )
 
         Log.d(
@@ -197,6 +217,13 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
     fun startDebate(gameMode: GameMode) {
         val user = _currentUser.value ?: return
         Log.d("DebateViewModel", "🚀 startDebate called with mode: $gameMode, user: ${user.name}")
+
+        // 🔥 Reset timeout flag for new debate
+        isDebateTimedOut = false
+        aiGenerationJob?.cancel()
+        aiGenerationJob = null
+        aiJudgingJob?.cancel()
+        aiJudgingJob = null
 
         viewModelScope.launch {
             _isLoading.value = true
@@ -389,7 +416,7 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                     gameMode = gameMode,
                     status = DebateStatus.PREP_TIME,
                     currentTurn = user.id, // Will be set by coin toss
-                    timeRemaining = 600000, // 10 minutes
+                    timeRemaining = 900000, // 15 minutes (increased from 10)
                     startTime = System.currentTimeMillis()
                 )
 
@@ -460,11 +487,24 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
 
         // Start actual debate
         val session = _currentSession.value ?: return
+
+        // 🔍 DEBUG: Log topic BEFORE transitioning to IN_PROGRESS
+        Log.d(
+            "DebateViewModel",
+            "🔍 BEFORE IN_PROGRESS transition: topic = '${session.topic.title}', status = ${session.status}"
+        )
+
         val updatedSession = session.copy(
             status = DebateStatus.IN_PROGRESS,
-            timeRemaining = 600000 // Reset to 10 minutes
+            timeRemaining = 900000 // Reset to 15 minutes (increased from 10)
         )
         _currentSession.value = updatedSession
+
+        // 🔍 DEBUG: Log topic AFTER transitioning to IN_PROGRESS
+        Log.d(
+            "DebateViewModel",
+            "🔍 AFTER IN_PROGRESS transition: topic = '${updatedSession.topic.title}', status = ${updatedSession.status}"
+        )
 
         // START MODEL HEARTBEAT to keep it alive during debate
         startModelHeartbeat()
@@ -503,21 +543,43 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 _currentSession.value = currentSess.copy(timeRemaining = timeLeft)
             }
 
-            // Update status message based on time remaining (only if not already showing other message)
+            // Update status message based on time remaining (only if not already showing "turn" or AI/typing/wait status)
+            val status = _statusMessage.value
+            val isPlayerTurn = status.contains("turn", ignoreCase = true) // player's turn
+            val isAIThinking = status.contains(
+                "AI is thinking",
+                ignoreCase = true
+            ) || status.contains(
+                "AI is responding",
+                ignoreCase = true
+            ) || status.contains("AI is preparing", ignoreCase = true) || _isAITyping.value
+
+            // Only show time remaining messages if not overriding turn/AI/typing status
             when {
-                timeLeft <= 60000 && !_statusMessage.value.contains("turn") ->
+                timeLeft <= 60000 && !isPlayerTurn && !isAIThinking ->
                     _statusMessage.value = "⏰ 1 minute remaining!"
 
-                timeLeft <= 120000 && !_statusMessage.value.contains("turn") ->
+                timeLeft <= 120000 && !isPlayerTurn && !isAIThinking ->
                     _statusMessage.value = "⏰ 2 minutes remaining!"
 
-                timeLeft <= 300000 && timeLeft % 60000L == 0L && !_statusMessage.value.contains("turn") ->
-                    _statusMessage.value = "⏰ ${timeLeft / 60000} minutes remaining!"
+                timeLeft <= 300000 && !isPlayerTurn && !isAIThinking ->
+                    _statusMessage.value = "⏰ 5 minutes remaining!"
+
+                timeLeft <= 600000 && !isPlayerTurn && !isAIThinking ->
+                    _statusMessage.value = "⏰ 10 minutes remaining!"
             }
         }
 
         // Time's up!
         if (timeLeft <= 0) {
+            // 🔥 CANCEL ALL AI OPERATIONS IMMEDIATELY
+            isDebateTimedOut = true
+
+            aiGenerationJob?.cancel()
+            aiGenerationJob = null
+            aiJudgingJob?.cancel()
+            aiJudgingJob = null
+
             endDebate()
         }
     }
@@ -528,6 +590,12 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
         val user = _currentUser.value ?: return
 
         Log.d("DebateViewModel", "📤 sendDebateMessage called: '$message'")
+
+        // 🔥 Prevent sending new messages if debate timed out
+        if (isDebateTimedOut) {
+            _statusMessage.value = "Debate has ended! No further turns are allowed."
+            return
+        }
 
         if (session.currentTurn != user.id) {
             _statusMessage.value = "Not your turn!"
@@ -613,7 +681,13 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 )
 
                 // Generate AI response with realistic delay
-                generateAIResponseWithDelay(session.copy(messages = updatedMessages))
+                // 🔥 Track AI job and block if debate ended
+                aiGenerationJob?.cancel()
+                if (!isDebateTimedOut) {
+                    aiGenerationJob = viewModelScope.launch {
+                        generateAIResponseWithDelay(session.copy(messages = updatedMessages))
+                    }
+                }
 
             } catch (e: Exception) {
                 _statusMessage.value = "Error: ${e.message}"
@@ -629,6 +703,12 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
      */
     private suspend fun generateAIResponseWithDelay(session: DebateSession) {
         try {
+            // 🔥 Block all new AI operations if debate has timed out
+            if (isDebateTimedOut || _currentSession.value?.status != DebateStatus.IN_PROGRESS) {
+                Log.w("DebateViewModel", "🛑 AI generation aborted due to timeout/debate end")
+                return
+            }
+
             // Always use the latest session from state to avoid race conditions and get fresh messages
             val currentSession = _currentSession.value ?: return
 
@@ -845,15 +925,30 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
 
             Log.d("DebateViewModel", "⚖️ Judging AI response...")
             // JUDGE AI'S RESPONSE
+            // 🔥 Track AI judging job, abort if debate ended
             _statusMessage.value = "⚖️ Judging AI's argument..."
-            val aiScore = judgeResponse(
-                currentResponse = trimmedResponse,
-                previousOpponentResponse = chatHistory.findLast { it.speaker == "player" }?.message
-                    ?: "",
+            var aiScore: TurnScore = TurnScore(
                 speaker = "AI",
-                difficulty = currentSession.gameMode,
-                turnNumber = aiMessage.turnNumber
+                score = 5,
+                reasoning = "Judging skipped",
+                hasProfanity = false,
+                factCheck = "Not evaluated"
             )
+            if (!isDebateTimedOut && _currentSession.value?.status == DebateStatus.IN_PROGRESS) {
+                aiJudgingJob?.cancel()
+                aiJudgingJob = viewModelScope.launch {
+                    aiScore = judgeResponse(
+                        currentResponse = trimmedResponse,
+                        previousOpponentResponse = chatHistory.findLast { it.speaker == "player" }?.message
+                            ?: "",
+                        speaker = "AI",
+                        difficulty = currentSession.gameMode,
+                        turnNumber = aiMessage.turnNumber
+                    )
+                }
+                // Wait for judging job to finish
+                aiJudgingJob?.join()
+            }
 
             Log.d("DebateViewModel", "AI Score: ${aiScore.score}/10")
 
@@ -902,6 +997,17 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
         difficulty: GameMode,
         turnNumber: Int = 0
     ): TurnScore {
+        // 🔥 Block all new AI judging operations if debate has timed out
+        if (isDebateTimedOut || _currentSession.value?.status != DebateStatus.IN_PROGRESS) {
+            Log.w("DebateViewModel", "🛑 AI judging aborted due to timeout/debate end")
+            return TurnScore(
+                speaker = speaker,
+                score = 5,
+                reasoning = "Judging skipped due to timeout",
+                hasProfanity = false,
+                factCheck = "Not evaluated"
+            )
+        }
         return try {
             // CRITICAL FIX: Reload model to clear KV cache before judging
             if (!reloadModelForFreshGeneration()) {
@@ -940,8 +1046,8 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
             // Use streaming API (which actually works) and parse text output
             val judgeResponse = StringBuilder()
             try {
-                // Longer timeout: 30 seconds for judging
-                kotlinx.coroutines.withTimeout(30000) {
+                // Longer timeout: 60 seconds for judging (increased from 30)
+                kotlinx.coroutines.withTimeout(60000) {
                     RunAnywhere.generateStream(judgingPrompt).collect { token ->
                         judgeResponse.append(token)
                     }
@@ -950,11 +1056,13 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
                 Log.e("DebateViewModel", "❌ Streaming judging failed", e)
                 // If streaming fails, wait and retry once
                 if (e.message?.contains("LLM component not initialized") == true) {
-                    Log.w("DebateViewModel", "⚠️ LLM not ready, waiting 2s and retrying...")
-                    delay(2000)
+                    Log.w("DebateViewModel", "⚠️ LLM not ready, waiting 3s and retrying...")
+                    delay(3000) // Increased from 2s to 3s
                     try {
-                        RunAnywhere.generateStream(judgingPrompt).collect { token ->
-                            judgeResponse.append(token)
+                        kotlinx.coroutines.withTimeout(60000) {
+                            RunAnywhere.generateStream(judgingPrompt).collect { token ->
+                                judgeResponse.append(token)
+                            }
                         }
                     } catch (e2: Exception) {
                         Log.e("DebateViewModel", "❌ Retry also failed", e2)
@@ -1128,9 +1236,18 @@ class DebateViewModel(application: Application) : AndroidViewModel(application) 
     private suspend fun endDebate() {
         val session = _currentSession.value ?: return
 
+        // 🔥 Prevent any new AI operations
+        isDebateTimedOut = true
+
+        // Stop all AI jobs
+        aiGenerationJob?.cancel()
+        aiGenerationJob = null
+        aiJudgingJob?.cancel()
+        aiJudgingJob = null
+
         // Stop heartbeat when debate ends
         stopModelHeartbeat()
-        
+
         _currentSession.value = session.copy(status = DebateStatus.JUDGING)
         _statusMessage.value = "Time's up! AI is judging the debate..."
         // DO NOT set _currentScreen - MainActivity will observe currentSession and navigate
@@ -1560,6 +1677,12 @@ AI Summary: The AI gave well-structured arguments but could connect better with 
         // DO NOT set _currentScreen - MainActivity will observe currentSession and navigate
         // _currentScreen.value = DebateScreen.MAIN_MENU
         _statusMessage.value = "Ready for another debate!"
+        // 🔥 Reset timeout/AI job flags
+        isDebateTimedOut = false
+        aiGenerationJob?.cancel()
+        aiGenerationJob = null
+        aiJudgingJob?.cancel()
+        aiJudgingJob = null
     }
 
     /**

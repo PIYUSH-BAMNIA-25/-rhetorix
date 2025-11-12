@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
  * P2P Debate ViewModel
  * Manages state for player-vs-player debates
  * Similar to DebateViewModel but uses Supabase for real-time sync
+ * NOW WITH TIMEOUT CANCELLATION like AI mode!
  */
 class P2PDebateViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -93,13 +94,30 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
     private var messagePollJob: Job? = null
     private var turnPollJob: Job? = null
     private var statusPollJob: Job? = null
+    private var timerJob: Job? = null
+    private var forfeitDetectionJob: Job? = null
+
+    // 🔥 NEW: AI generation jobs (for cancellation on timeout)
+    private var aiJudgingJob: Job? = null
+    private var isDebateTimedOut = false
 
     // Track current model ID for reloading
     private val _currentModelId = MutableStateFlow<String?>(null)
 
+    // NEW: Client-side timer for countdown
+    private val _clientTimeRemaining = MutableStateFlow(900000L) // 15 minutes
+    val clientTimeRemaining: StateFlow<Long> = _clientTimeRemaining
+
+    // NEW: Track session start time for PREP transition
+    private var sessionStartTime = 0L
+
+    // NEW: Track last opponent activity for forfeit detection
+    private var lastOpponentActivityTime = System.currentTimeMillis()
+
     /**
      * CRITICAL FIX: Reload model to clear KV cache before generation
      * This prevents sequence position mismatches in llama-android
+     * NOW WITH VERIFICATION like AI mode!
      */
     private suspend fun reloadModelForFreshGeneration(): Boolean {
         // Try to get model ID from DebateViewModel's loaded model
@@ -123,6 +141,35 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
                 Log.d(TAG, "✅ Model reloaded successfully, KV cache cleared")
                 // Small delay to ensure model is ready
                 delay(500)
+
+                // CRITICAL FIX: Verify model works with test generation (like AI mode)
+                Log.d(TAG, "🧪 Testing model with simple prompt...")
+                var testSuccess = false
+                var attempts = 0
+                val maxAttempts = 3
+
+                while (!testSuccess && attempts < maxAttempts) {
+                    attempts++
+                    try {
+                        Log.d(TAG, "🧪 Test attempt $attempts/$maxAttempts...")
+                        val testResponse = StringBuilder()
+                        RunAnywhere.generateStream("Say 'ready'").collect { token ->
+                            testResponse.append(token)
+                        }
+                        Log.d(TAG, "✅ Model test successful: $testResponse")
+                        testSuccess = true
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Model test attempt $attempts failed", e)
+                        if (attempts < maxAttempts) {
+                            delay(2000) // Wait 2 seconds between retries
+                        }
+                    }
+                }
+
+                if (!testSuccess) {
+                    Log.w(TAG, "⚠️ Model test failed after $maxAttempts attempts")
+                    return false
+                }
             } else {
                 Log.e(TAG, "❌ Failed to reload model")
             }
@@ -177,6 +224,15 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
 
                     // Initialize scores
                     _accumulatedScores.value = AccumulatedScores(0, 0, 0, 0)
+
+                    // Start client-side timer
+                    sessionStartTime = System.currentTimeMillis()
+
+                    // ✅ CRITICAL FIX: Reset opponent activity time when session starts!
+                    lastOpponentActivityTime = System.currentTimeMillis()
+
+                    _clientTimeRemaining.value =
+                        session.debate_time_remaining // Initialize with DB value
 
                 }.onFailure { error ->
                     Log.e(TAG, "❌ Failed to load session", error)
@@ -246,6 +302,7 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
             if (newMessages.isNotEmpty()) {
                 _messages.value = _messages.value + newMessages
                 Log.d(TAG, "📬 Received ${newMessages.size} new messages")
+                lastOpponentActivityTime = System.currentTimeMillis()
             }
         }
     }
@@ -283,19 +340,161 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
 
         p2pService.pollSessionStatus(sessionId).onSuccess { newStatus ->
             if (newStatus != _debateStatus.value) {
+                val oldStatus = _debateStatus.value
                 _debateStatus.value = newStatus
-                Log.d(TAG, "🔄 Status changed to: $newStatus")
+                Log.d(TAG, "🔄 Status changed from $oldStatus to: $newStatus")
 
                 when (newStatus) {
                     "IN_PROGRESS" -> {
                         _statusMessage.value = "Debate started!"
+
+                        // ✅ FIX: Start countdown timer when debate begins!
+                        if (timerJob == null || timerJob?.isActive == false) {
+                            Log.d(TAG, "⏱️ Starting countdown timer")
+                            timerJob = viewModelScope.launch {
+                                while (_debateStatus.value == "IN_PROGRESS") {
+                                    delay(1000)
+
+                                    // Decrement by 1 second (1000ms)
+                                    val newTime = _clientTimeRemaining.value - 1000
+                                    _clientTimeRemaining.value = newTime.coerceAtLeast(0)
+
+                                    if (_clientTimeRemaining.value <= 0) {
+                                        Log.d(TAG, "⏱️ Timer reached 0, ending debate")
+                                        endDebate()
+                                        break
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     "FINISHED" -> {
                         _statusMessage.value = "Debate finished!"
                         stopPolling()
                     }
+
+                    "ABANDONED" -> {
+                        _statusMessage.value = "Opponent left!"
+                        handleOpponentForfeit()
+                    }
                 }
+            }
+        }
+
+        // Auto-transition from PREP to IN_PROGRESS after 30 seconds
+        if (_debateStatus.value == "PREP") {
+            val prepElapsed = System.currentTimeMillis() - sessionStartTime
+            if (prepElapsed > 30000) {
+                Log.d(TAG, "⏱️ Prep time over, transitioning to IN_PROGRESS")
+                p2pService.updateSessionStatus(sessionId, "IN_PROGRESS")
+                _debateStatus.value = "IN_PROGRESS"
+                _statusMessage.value = "Debate started!"
+
+                // ✅ FIX: Start timer here too (backup)
+                if (timerJob == null || timerJob?.isActive == false) {
+                    Log.d(TAG, "⏱️ Starting countdown timer (after prep)")
+                    timerJob = viewModelScope.launch {
+                        while (_debateStatus.value == "IN_PROGRESS") {
+                            delay(1000)
+
+                            val newTime = _clientTimeRemaining.value - 1000
+                            _clientTimeRemaining.value = newTime.coerceAtLeast(0)
+
+                            if (_clientTimeRemaining.value <= 0) {
+                                Log.d(TAG, "⏱️ Timer reached 0, ending debate")
+                                endDebate()
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Handle opponent forfeit (they left the match)
+     */
+    private fun handleOpponentForfeit() {
+        viewModelScope.launch {
+            Log.d(TAG, "🏆 Opponent forfeited! You win by default")
+
+            // Stop all polling
+            stopPolling()
+
+            // 🔥 Cancel AI operations
+            isDebateTimedOut = true
+            aiJudgingJob?.cancel()
+            aiJudgingJob = null
+
+            // Award automatic win (100 for me, 0 for opponent)
+            _finalScores.value = Pair(100, 0)
+            _myStrengths.value = listOf(
+                "Victory by opponent forfeit",
+                "Showed up and participated fully",
+                "Demonstrated commitment to the debate"
+            )
+            _myWeaknesses.value = listOf(
+                "Opponent left before completion"
+            )
+
+            _debateStatus.value = "FINISHED"
+
+            // Save results
+            val accumulated = _accumulatedScores.value ?: AccumulatedScores(0, 0, 0, 0)
+            _accumulatedScores.value = accumulated.copy(
+                playerTotalScore = 100,
+                aiTotalScore = 0
+            )
+
+            saveDebateResults()
+        }
+    }
+
+    /**
+     * User forfeits the match (leaves early)
+     */
+    fun forfeitMatch() {
+        viewModelScope.launch {
+            val sessionId = _sessionId.value ?: return@launch
+
+            Log.d(TAG, "❌ User forfeiting match")
+
+            try {
+                // Mark session as ABANDONED
+                p2pService.updateSessionStatus(sessionId, "ABANDONED")
+
+                // Stop all operations
+                stopPolling()
+                isDebateTimedOut = true
+                aiJudgingJob?.cancel()
+                aiJudgingJob = null
+
+                // Set scores (0 for me, 100 for opponent)
+                _finalScores.value = Pair(0, 100)
+                _myWeaknesses.value = listOf(
+                    "Left the match early",
+                    "Did not complete the debate",
+                    "Forfeited"
+                )
+                _myStrengths.value = emptyList()
+
+                // Update accumulated scores
+                val accumulated = _accumulatedScores.value ?: AccumulatedScores(0, 0, 0, 0)
+                _accumulatedScores.value = accumulated.copy(
+                    playerTotalScore = 0,
+                    aiTotalScore = 100
+                )
+
+                // Save forfeit result
+                saveDebateResults()
+
+                // Navigate to results
+                _debateStatus.value = "FINISHED"
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error forfeiting match", e)
             }
         }
     }
@@ -304,9 +503,17 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
      * Send a message in the debate
      */
     fun sendMessage(text: String) {
+        Log.d(TAG, "📤 === SEND MESSAGE CALLED ===")
+        Log.d(TAG, "📤 Text: $text")
+
         val sessionId = _sessionId.value
         val userId = _currentUserId.value
         val userName = _currentUserName.value
+
+        Log.d(TAG, "📤 Session ID: $sessionId")
+        Log.d(TAG, "📤 User ID: $userId")
+        Log.d(TAG, "📤 User Name: $userName")
+        Log.d(TAG, "📤 Is my turn: ${_isMyTurn.value}")
 
         if (sessionId == null || userId == null) {
             Log.e(TAG, "❌ Cannot send message: session or user not set")
@@ -315,10 +522,12 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
 
         if (!_isMyTurn.value) {
             _statusMessage.value = "Not your turn!"
+            Log.w(TAG, "⚠️ Not user's turn")
             return
         }
 
         if (text.isBlank()) {
+            Log.w(TAG, "⚠️ Message is blank")
             return
         }
 
@@ -328,6 +537,7 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
                 val currentTurn = _turnNumber.value + 1
 
                 Log.d(TAG, "📤 Sending message: $text")
+                Log.d(TAG, "📤 Current turn: $currentTurn")
 
                 // Send message to database
                 p2pService.sendMessage(
@@ -349,17 +559,22 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
                         turnNumber = currentTurn
                     )
                     _messages.value = _messages.value + newMessage
+                    Log.d(TAG, "✅ Message added to local state")
 
                     // Judge my message (same AI judge as AI mode!)
+                    Log.d(TAG, "⚖️ Calling judgeMessage...")
                     judgeMessage(text, userName, currentTurn)
+                    Log.d(TAG, "⚖️ judgeMessage call completed")
 
                     // Switch turn to opponent
                     val opponentId = _opponentId.value ?: return@onSuccess
+                    Log.d(TAG, "🔄 Switching turn to opponent: $opponentId")
                     p2pService.updateTurn(sessionId, opponentId, currentTurn)
 
                     _isMyTurn.value = false
                     _turnNumber.value = currentTurn
                     _statusMessage.value = "Opponent's turn..."
+                    Log.d(TAG, "✅ Turn switched successfully")
 
                 }.onFailure { error ->
                     Log.e(TAG, "❌ Failed to send message", error)
@@ -378,16 +593,33 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
     /**
      * Judge a message using AI (same as AI mode!)
      * Uses the same LLM judge that judges AI vs player debates
+     * NOW WITH TIMEOUT PROTECTION!
      */
     private suspend fun judgeMessage(message: String, speaker: String, turnNumber: Int) {
+        Log.d(TAG, "⚖️ === JUDGE MESSAGE CALLED ===")
+        Log.d(TAG, "⚖️ Message: $message")
+        Log.d(TAG, "⚖️ Speaker: $speaker")
+        Log.d(TAG, "⚖️ Turn: $turnNumber")
+        Log.d(TAG, "⚖️ Debate status: ${_debateStatus.value}")
+        Log.d(TAG, "⚖️ Timed out: $isDebateTimedOut")
+
+        // 🔥 Block all new AI judging operations if debate has timed out
+        if (isDebateTimedOut || _debateStatus.value == "FINISHED") {
+            Log.w(TAG, "🛑 AI judging aborted due to timeout/debate end")
+            return
+        }
+
         try {
             _statusMessage.value = "⚖️ Judging your argument..."
+            Log.d(TAG, "⚖️ Status message set")
 
             // Get opponent's last message for context
             val opponentLastMessage = _messages.value
                 .filter { it.playerId == _opponentId.value }
                 .lastOrNull()
                 ?.message ?: ""
+
+            Log.d(TAG, "⚖️ Opponent last message: ${opponentLastMessage.take(50)}...")
 
             // Build judging prompt (same as DebateViewModel)
             val judgingPrompt = buildJudgingPrompt(
@@ -397,19 +629,30 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
                 turnNumber = turnNumber
             )
 
+            Log.d(TAG, "⚖️ Judging prompt built: ${judgingPrompt.take(100)}...")
+
             // Reload model before judging to clear KV cache
+            Log.d(TAG, "⚖️ Attempting to reload model...")
             if (!reloadModelForFreshGeneration()) {
                 Log.e(TAG, "❌ Model reload failed, judging with existing model...")
+            } else {
+                Log.d(TAG, "✅ Model reloaded successfully")
             }
 
             // Use AI to judge (streaming API)
             val judgeResponse = StringBuilder()
+            Log.d(TAG, "⚖️ Starting AI generation...")
             try {
-                RunAnywhere.generateStream(judgingPrompt).collect { token ->
-                    judgeResponse.append(token)
+                aiJudgingJob = viewModelScope.launch {
+                    RunAnywhere.generateStream(judgingPrompt).collect { token ->
+                        judgeResponse.append(token)
+                        Log.d(TAG, "⚖️ Token received: $token")
+                    }
                 }
+                aiJudgingJob?.join()
+                Log.d(TAG, "⚖️ AI generation complete: $judgeResponse")
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Judging failed", e)
+                Log.e(TAG, "❌ Judging generation failed", e)
                 return
             }
 
@@ -421,8 +664,10 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
             // Show score popup
             _currentTurnScore.value = score
             _showScorePopup.value = true
+            Log.d(TAG, "⚖️ Score popup shown")
             delay(3000)
             _showScorePopup.value = false
+            Log.d(TAG, "⚖️ Score popup hidden")
 
             // Update accumulated scores
             val accumulated = _accumulatedScores.value ?: AccumulatedScores(0, 0, 0, 0)
@@ -438,6 +683,8 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
                 )
             }
 
+            Log.d(TAG, "⚖️ Scores updated: ${_accumulatedScores.value}")
+
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error judging message", e)
         }
@@ -445,6 +692,7 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
 
     /**
      * Build judging prompt (same as DebateViewModel)
+     * More reliable than the old verbose format
      */
     private fun buildJudgingPrompt(
         currentResponse: String,
@@ -452,38 +700,18 @@ class P2PDebateViewModel(application: Application) : AndroidViewModel(applicatio
         speaker: String,
         turnNumber: Int
     ): String {
-        val opponentContext = if (previousOpponentResponse.isNotEmpty()) {
-            "OPPONENT SAID: \"$previousOpponentResponse\"\n"
-        } else {
-            "(This is the opening statement)\n"
-        }
-
-        return """
-You are a debate judge. Score this single turn.
-
-TURN #$turnNumber:
-$opponentContext
-$speaker RESPONDS: "$currentResponse"
-
-Evaluate this response (0-10 points):
-
-SCORING CRITERIA:
-- Logic (2 pts): Is reasoning sound?
-- Relevance (2 pts): Does it address opponent?
-- Evidence (2 pts): Specific examples/facts?
-- Persuasiveness (2 pts): Is it convincing?
-- Clarity (2 pts): Is it clear and concise?
-
-IMPORTANT: Judge ONLY this turn, not the whole debate.
-
-Format:
-Score: X/10
-Reasoning: [one sentence: what was good/bad]
-Profanity: yes/no
-Facts: reasonable/questionable
-
-Evaluate:
-""".trimIndent()
+        // ULTRA SIMPLE - just the facts (like improved AI mode)
+        return buildString {
+            if (previousOpponentResponse.isNotEmpty()) {
+                append("Opponent said: \"$previousOpponentResponse\"\n\n")
+            }
+            append("$speaker said: \"$currentResponse\"\n\n")
+            append("Judge this argument (0-10):\n")
+            append("- Does it make logical sense? (0-5 pts)\n")
+            append("- Is it persuasive? (0-5 pts)\n\n")
+            append("Your score:\n")
+            append("Score: ")
+        }.trim()
     }
 
     /**
@@ -534,17 +762,28 @@ Evaluate:
         messagePollJob?.cancel()
         turnPollJob?.cancel()
         statusPollJob?.cancel()
+        timerJob?.cancel()
+        forfeitDetectionJob?.cancel()
         Log.d(TAG, "🛑 Polling stopped")
     }
 
     /**
      * End the debate
+     * NOW WITH TIMEOUT CANCELLATION like AI mode!
      */
     fun endDebate() {
         viewModelScope.launch {
             val sessionId = _sessionId.value ?: return@launch
 
             Log.d(TAG, "🏁 Time's up! Ending debate...")
+
+            // 🔥 CRITICAL: Prevent any new AI operations
+            isDebateTimedOut = true
+
+            // 🔥 CRITICAL: Cancel all ongoing AI judging jobs
+            aiJudgingJob?.cancel()
+            aiJudgingJob = null
+
             _debateStatus.value = "JUDGING"
 
             delay(2000) // Short delay for "judging" animation
@@ -569,6 +808,7 @@ Evaluate:
 
     /**
      * Forfeit the debate
+     * NOW WITH TIMEOUT CANCELLATION like AI mode!
      */
     fun forfeitDebate() {
         viewModelScope.launch {
@@ -576,6 +816,13 @@ Evaluate:
             val userId = _currentUserId.value ?: return@launch
 
             Log.d(TAG, "🏳️ Player forfeited the debate")
+
+            // 🔥 Prevent any new AI operations
+            isDebateTimedOut = true
+
+            // 🔥 Cancel all ongoing AI judging jobs
+            aiJudgingJob?.cancel()
+            aiJudgingJob = null
 
             // Mark session as finished
             p2pService.endSession(sessionId).onSuccess {
@@ -706,5 +953,9 @@ Evaluate:
     override fun onCleared() {
         super.onCleared()
         stopPolling()
+
+        // 🔥 Cancel AI jobs on cleanup
+        aiJudgingJob?.cancel()
+        aiJudgingJob = null
     }
 }

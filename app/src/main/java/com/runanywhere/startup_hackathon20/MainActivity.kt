@@ -269,9 +269,20 @@ fun AppNavigation() {
         ExitDebateDialog(
             onConfirm = {
                 showDebateExitDialog = false
-                // Record forfeit before leaving
-                debateViewModel.forfeitDebate()
-                currentScreen = Screen.Home
+                // Check if P2P or AI debate
+                when (currentScreen) {
+                    Screen.P2PDebateActive -> {
+                        // P2P forfeit
+                        p2pViewModel.forfeitMatch()
+                        currentScreen = Screen.Home
+                    }
+
+                    else -> {
+                        // AI forfeit
+                        debateViewModel.forfeitDebate()
+                        currentScreen = Screen.Home
+                    }
+                }
             },
             onDismiss = {
                 showDebateExitDialog = false
@@ -455,6 +466,8 @@ fun AppNavigation() {
                             // Navigation will happen automatically via LaunchedEffect
                         },
                         onBackToMenu = {
+                            // Clear session data before going back to home
+                            debateViewModel.startNewDebate()
                             // Back to home screen
                             currentScreen = Screen.Home
                         }
@@ -475,11 +488,19 @@ fun AppNavigation() {
         // 9. P2P Screens
         Screen.Matchmaking -> {
             currentUser?.let { user ->
+                // DEBUG: Log user data when entering matchmaking
+                android.util.Log.d("P2P_DEBUG", "=== ENTERING MATCHMAKING ===")
+                android.util.Log.d("P2P_DEBUG", "User ID: ${user.id}")
+                android.util.Log.d("P2P_DEBUG", "Player ID: ${user.playerId}")
+                android.util.Log.d("P2P_DEBUG", "Player Name: ${user.firstName} ${user.lastName}")
+                android.util.Log.d("P2P_DEBUG", "Email: ${user.email}")
+
                 val createdSessionId by matchmakingViewModel.createdSessionId.collectAsState()
 
                 // Auto-navigate when session is created
                 LaunchedEffect(createdSessionId) {
                     createdSessionId?.let { sessionId ->
+                        android.util.Log.d("P2P_DEBUG", "✅ Session created: $sessionId")
                         p2pSessionId = sessionId
                         currentScreen = Screen.P2PDebatePreparation
                     }
@@ -489,6 +510,7 @@ fun AppNavigation() {
                     playerName = "${user.firstName} ${user.lastName}",
                     onMatchFound = { _, _ -> /* Handled by LaunchedEffect */ },
                     onCancel = {
+                        android.util.Log.d("P2P_DEBUG", "❌ Matchmaking cancelled by user")
                         currentScreen = Screen.Home
                     },
                     viewModel = matchmakingViewModel
@@ -496,11 +518,27 @@ fun AppNavigation() {
 
                 // Start matchmaking automatically
                 LaunchedEffect(Unit) {
+                    android.util.Log.d("P2P_DEBUG", "🚀 Starting matchmaking...")
+                    android.util.Log.d("P2P_DEBUG", "Calling startMatchmaking with:")
+                    android.util.Log.d("P2P_DEBUG", "  - playerId: ${user.playerId}")
+                    android.util.Log.d(
+                        "P2P_DEBUG",
+                        "  - playerName: ${user.firstName} ${user.lastName}"
+                    )
+
                     matchmakingViewModel.startMatchmaking(
                         playerId = user.playerId.toString(),
                         playerName = "${user.firstName} ${user.lastName}"
                     )
                 }
+            } ?: run {
+                // ERROR: User data not loaded
+                android.util.Log.e(
+                    "P2P_DEBUG",
+                    "❌❌❌ ERROR: currentUser is NULL! Cannot start matchmaking!"
+                )
+                android.util.Log.e("P2P_DEBUG", "This means user data wasn't loaded properly")
+                currentScreen = Screen.Home
             }
         }
 
@@ -544,6 +582,14 @@ fun AppNavigation() {
                 val sessionData by p2pViewModel.sessionData.collectAsState()
                 val opponentName by p2pViewModel.opponentName.collectAsState()
 
+                // DEBUG: Log what we have
+                android.util.Log.d("P2P_DEBUG", "=== P2PDebateResults ===")
+                android.util.Log.d("P2P_DEBUG", "finalScores: $finalScores")
+                android.util.Log.d("P2P_DEBUG", "sessionData: ${sessionData?.session_id}")
+                android.util.Log.d("P2P_DEBUG", "opponentName: $opponentName")
+                android.util.Log.d("P2P_DEBUG", "myStrengths: $myStrengths")
+                android.util.Log.d("P2P_DEBUG", "myWeaknesses: $myWeaknesses")
+
                 if (finalScores != null && sessionData != null) {
                     P2PDebateResultsScreen(
                         myName = "${user.firstName} ${user.lastName}",
@@ -560,10 +606,39 @@ fun AppNavigation() {
                             currentScreen = Screen.Matchmaking
                         },
                         onBackToMenu = {
+                            // Reset P2P state before going back to home
                             p2pSessionId = null
                             currentScreen = Screen.Home
                         }
                     )
+                } else {
+                    // FALLBACK: Show loading or error
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF0A0A0F)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Color(0xFF00D9FF))
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Loading results...",
+                                color = Color.White,
+                                fontSize = 18.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (finalScores == null) "Waiting for scores..." else "Waiting for session data...",
+                                color = Color.Gray,
+                                fontSize = 14.sp
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(onClick = { currentScreen = Screen.Home }) {
+                                Text("Back to Home")
+                            }
+                        }
+                    }
                 }
             }
         }

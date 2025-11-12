@@ -68,7 +68,7 @@ fun DualScoreHeader(
     playerName: String = "You",
     gameMode: GameMode = GameMode.AI_INTERMEDIATE
 ) {
-    val timeProgress = (timeRemaining / 600000f).coerceIn(0f, 1f)
+    val timeProgress = (timeRemaining / 900000f).coerceIn(0f, 1f)
     val timeSeconds = (timeRemaining / 1000).toInt()
     val minutes = timeSeconds / 60
     val seconds = timeSeconds % 60
@@ -651,6 +651,12 @@ fun DebateActiveScreen(
         ) {
             // Header with Topic and Timer
             currentSession?.let { session ->
+                // 🔍 DEBUG: Log what topic is being displayed
+                android.util.Log.d(
+                    "DebateActiveScreen",
+                    "🔍 Rendering header with topic: '${session.topic.title}', status: ${session.status}"
+                )
+
                 DebateHeader(
                     topic = session.topic.title,
                     timeRemaining = session.timeRemaining,
@@ -747,7 +753,7 @@ fun DebateHeader(
     timeRemaining: Long,
     playerSide: String
 ) {
-    val timeProgress = (timeRemaining / 600000f).coerceIn(0f, 1f)
+    val timeProgress = (timeRemaining / 900000f).coerceIn(0f, 1f)
     val timeSeconds = (timeRemaining / 1000).toInt()
     val minutes = timeSeconds / 60
     val seconds = timeSeconds % 60
