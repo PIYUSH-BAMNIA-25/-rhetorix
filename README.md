@@ -629,24 +629,25 @@ app/src/main/java/com/runanywhere/startup_hackathon20/
 
 **Piyush Bamnia**
 
-- Role: Lead Developer & AI Integration
+- Role: Team Leader and AI integration
 - GitHub: [@PIYUSH-BAMNIA-25](https://github.com/PIYUSH-BAMNIA-25)
+- LinkedIn : [@Piyush Bamnia](https://www.linkedin.com/in/piyush-bamnia-ab09ab255/)
 - Email: piyushbamnia25@gmail.com
 - Contributions:
-    - P2P matchmaking system
-    - AI judging implementation
-    - Database architecture
+    - AI Mode Implementation
+    - AI judging Implementation
     - Real-time sync logic
 
-**Mark Wood**
+**M. Pihu Mohanty**
 
-- Role: Frontend Developer & UI/UX
-- Email: markwood21@gmail.com
+- Role: Frontend & Database management
+- GitHub: [@Pihu-Mohanty](https://github.com/kumarimanjusrimohantycse2024-art)
+- LinkedIn : [@M. Pihu Mohanty](https://www.linkedin.com/in/m-pihu-mohanty-5753212b0/)
+- Email: kumarimanjusrimohantycse2024@gmail.com
 - Contributions:
-    - Jetpack Compose UI implementation
-    - Debate screen animations
-    - Timer system
-    - Results visualization
+    - DataBase Implementation
+    - UI Development
+    - P2P Mode Implementation
 
 ### **Project Links**
 
@@ -736,10 +737,6 @@ WHERE session_id = '[SESSION_ID]';
 ```
 
 ---
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ### **Third-Party Licenses**
 
